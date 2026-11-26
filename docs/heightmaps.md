@@ -15,7 +15,9 @@ already exists for normal maps, so height is an additive change rather than new 
   per-material strength knob exists and survives a restart.
 
 So a height channel is: `ResolveResourcePath( TextureName, "_HEIGHT.DDS", gameName )`, folder
-`Heightmaps_<gameName>`, a `GetHeightmap()` on the surface, and `srv[2]` bound to the **domain**
+`system\GD3D11\Textures\Replacements\Heightmaps_<gameName>\` (resolved by `ResolveResourcePath`, with
+`_work\Data\Textures\Replacements\` as the VDFS-side root that has no game subdirectory), a
+`GetHeightmap()` on the surface, and `srv[2]` bound to the **domain**
 shader in the tessellated draw. No format change, no new loader, no new ini section.
 
 ## Where the data comes from

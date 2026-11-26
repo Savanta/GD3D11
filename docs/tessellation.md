@@ -84,7 +84,9 @@ The domain stage displaces along a **relief texture** (`TX_Relief`, t0, with the
 sampler), sampled per domain vertex, in one of four modes carried in the patch constant buffer. The
 draw picks the best source a material has, in this order:
 
-- **mode 2 - height map**: `'<texture>_HEIGHT.DDS'` under `Heightmaps_<gameName>`, found by the same
+- **mode 2 - height map**: `'<texture>_HEIGHT.DDS'` under
+  `system\GD3D11\Textures\Replacements\Heightmaps_<gameName>\` (or `_work\Data\Textures\Replacements\`
+  with no game subdirectory - both roots come from `ResolveResourcePath`), found by the same
   synchronous probe + async load + refcounted cache as the normal maps (`MyDirectDrawSurface7`).
   0.5 is the neutral surface and the shader displaces by `(h - 0.5) * 2`, so a flat stretch of the
   map moves nothing. This is real height.
@@ -110,15 +112,20 @@ non-integrable noise that plain integration turns into spikes), or from a diffus
 data does not: a height set baked from another pack's textures is a derivative work
 (`docs/heightmaps.md`).
 
-**Measured limit (26.11.2026): extra maps never reach world textures in this mod.** With
-`[General] EnableDebugLog=1` the probe line above shows that only **10** textures ever reach
-`MyDirectDrawSurface7::LoadAdditionalResources` in a whole session, and all ten are menu/UI
-(`STARTSCREEN`, `FONT_*`, `PROGRESS*`, ...). No world texture is probed, so no world material can
-carry a `_NORMAL.DDS` or a `_HEIGHT.DDS` - a file dropped into `Heightmaps_<gameName>` stays unused
-(verified by placing one for a probed water texture and restarting). Modes 1 and 2 are therefore
-dead here, which is why **mode 3 (the material's own diffuse) is the mode that actually displaces
-the world**. Finding why world textures bypass the probe - and feeding a real height channel through
-it - is what `docs/heightmaps.md` still needs.
+**Fixed 26.11.2026: world textures now reach the probe.** The probe lived in
+`MyDirectDrawSurface7::Unlock` and only fired while `GothicAPI::GetLoadingTexture()` was set, but a
+texture loaded on the resource-manager thread uploads through `UpdateDataDeferred` on the *frame*
+thread, long after that marker is gone - so a whole session probed ten menu textures and not one world
+texture. `zCTexture`'s `LoadResourceData` and `CacheIn` hooks now latch the owning surface directly
+(`LatchTextureOwner`) and probe there. Measured after the fix: **237 probes in one world load**, with
+real names (`NW_SEQ_MAYA_WALL_GREEN_03`, `NW_CITY_BROKENSTONE_01`, `NW_SEQ_MOUNTAIN_03_XL`,
+`AW_WALL_MAIN_1`, ...), and the "Additional maps for ..." line doubles as the inventory a map set has
+to be named after (trace cap raised to 400).
+
+What the probe still finds is nothing: the archives hold ~9.3 k `.TEX` and zero `.DDS`, so no material
+ships a normal or height companion. **Mode 3 (the material's own diffuse) is therefore still the only
+rung that displaces anything**, and a real height channel now depends on authoring the maps, not on
+the loader.
 
 ## What the player can walk on
 
