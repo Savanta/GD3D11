@@ -90,10 +90,14 @@ draw picks the best source a material has, in this order:
   map moves nothing. This is real height.
 - **mode 1 - normal map slope**: `1 - n.z` (half weight) is a *proxy*, not a height: it follows the
   texture grain but does not reconstruct shape.
-- **mode 3 - the material's own diffuse**: luminance as height, `(lum - 0.5) * 2`. Every world
-  material has a diffuse and nothing has to be authored, which makes this the mode that actually
-  runs today. Good for brick, stone, wood and metal grime; wrong wherever brightness is not height
-  (painted highlights, baked shadows, decals). `docs/heightmaps.md` lists it as option 2.
+- **mode 3 - the material's own diffuse**: the *high-passed* luminance (Laplacian against the four
+  neighbouring texels), weighted to 0.08 of the triangle edge at scale 1. Every world material has a
+  diffuse and nothing has to be authored, which makes this the mode that actually runs today. Good
+  for brick, stone, wood and metal grime.
+  The level, not the variation, was the first implementation and it was wrong in a way worth
+  recording: bright but flat texels (frost, snow, a painted highlight) took the full amplitude and
+  were pushed out as solid cones - read on screen as white icicles hanging off the rock at
+  displacement 1.0. Only variation inside the texture is height.
 - **mode 0 - white texture**: decodes to a flat normal, exactly zero relief.
 
 The SRV and the mode are per material, so both ride the patch draw; the constant buffer is
