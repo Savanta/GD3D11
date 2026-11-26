@@ -120,6 +120,29 @@ dead here, which is why **mode 3 (the material's own diffuse) is the mode that a
 the world**. Finding why world textures bypass the probe - and feeding a real height channel through
 it - is what `docs/heightmaps.md` still needs.
 
+## What the player can walk on
+
+Tessellation and displacement are **render-only**. The domain stage moves vertices that exist only for
+the duration of one draw call: the world mesh's vertex and index buffers are built once from the level
+data and nothing writes back to them, so the level's collision polygons (`zCPolygon`/BSP, static VOB
+collision) and every VOB transform stay exactly where the engine loaded them. The hero never falls
+through a bulge, and never stands on one either - collision and the drawn surface simply stop matching by
+the displacement amplitude.
+
+Which way it diverges follows from the maths. The PN term uses the three cubic weights, all >= 0, and
+push control points along the vertex normals, so it only ever bulges *outward*; so does relief in mode 1
+(`saturate`) and mode 3 (`saturate`). Mode 2 (height map) is `(h - 0.5) * 2`, symmetric, so it can also
+pull the surface inward.
+
+- Up to `TessellationDisplacement` 0.5 with normal edge lengths the mismatch is a couple of centimetres:
+  invisible in play.
+- At 2-5 the hero visibly sinks into outward bulges (his feet stay on the collision surface) and NPCs
+  standing on a bulge do not rise with it.
+- At 12-20 the camera itself ends up inside the bulge - that was the first thing measured here, and the
+  reason the slider has a ceiling.
+
+So: 0.2-0.5 for play, anything higher is a screenshot setting.
+
 ## Next step
 
 - **Get the relief channel to see world textures.** Everything else here is measurable; this is the one
