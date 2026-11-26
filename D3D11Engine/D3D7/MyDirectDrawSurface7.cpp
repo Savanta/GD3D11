@@ -1,4 +1,7 @@
 #include "MyDirectDrawSurface7.h"
+#include <cstdint>
+#include <cstring>
+#include <fstream>
 #include "../Engine.h"
 #include "../GothicAPI.h"
 #include "../D3D11GraphicsEngineBase.h"
@@ -319,7 +322,58 @@ void MyDirectDrawSurface7::WaitForPendingAdditionalResources() {
     PruneFinishedSurfaceLoadsLocked();
 }
 
-/** Loads additional resources if possible */
+/** Writes a locked surface to system\TexDump\<name>.DDS (uncompressed BGRA8) once per name.
+
+    This is the inventory the texture work needs: the archives only hold .TEX, so without a dump there is no
+    way to get the pixels a height or normal map has to be baked from, and no way to know which names matter.
+    Enabled with GD3D11_TEXDUMP=1, never in a normal run. Thread safe: both the game thread and the
+    resource-manager thread reach Unlock. */
+static void DumpTextureOnce( const std::string& name, const unsigned char* data, std::uint32_t width,
+                             std::uint32_t height, std::uint32_t pitch ) {
+    if ( name.empty() || !data || !width || !height || !pitch ) {
+        return;
+    }
+
+    static std::mutex mutex;
+    static std::unordered_set<std::string> dumped;
+    {
+        std::lock_guard<std::mutex> lock( mutex );
+        if ( !dumped.insert( name ).second ) {
+            return;
+        }
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories( "system\\TexDump", ec );
+
+    std::ofstream out( "system\\TexDump\\" + name + ".DDS", std::ios::binary );
+    if ( !out ) {
+        return;
+    }
+
+    unsigned char header[128] = {};
+    std::memcpy( header, "DDS ", 4 );
+    const auto put32 = [&header]( std::uint32_t offset, std::uint32_t value ) {
+        std::memcpy( header + offset, &value, 4 );
+    };
+    put32( 4, 124 );
+    put32( 8, 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x80000 );   // CAPS|HEIGHT|WIDTH|PITCH|PIXELFORMAT|LINEARSIZE
+    put32( 12, height );
+    put32( 16, width );
+    put32( 20, pitch );
+    put32( 76, 32 );                                        // ddspf.dwSize
+    put32( 80, 0x41 );                                      // DDPF_RGB | DDPF_ALPHAPIXELS
+    put32( 88, 32 );
+    put32( 92, 0x00ff0000 );
+    put32( 96, 0x0000ff00 );
+    put32( 100, 0x000000ff );
+    put32( 104, 0xff000000 );
+    put32( 108, 0x1000 );                                   // DDSCAPS_TEXTURE
+
+    out.write( reinterpret_cast<const char*>( header ), 128 );
+    out.write( reinterpret_cast<const char*>( data ), static_cast<std::streamsize>( pitch ) * height );
+}
+
 void MyDirectDrawSurface7::LatchTextureOwner( zCTexture* ownedTexture ) {
     if ( !ownedTexture || AdditionalResourcesResolved ) {
         return;
@@ -333,6 +387,7 @@ void MyDirectDrawSurface7::LatchTextureOwner( zCTexture* ownedTexture ) {
     LoadAdditionalResources( ownedTexture );
 }
 
+/** Loads additional resources if possible */
 void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
     // Gothic unlocks every mip level of a texture and each of them ends up here (the mip surfaces are
     // views onto this one). Everything below — the VDFS probes, the cache lookups, the worker job —
@@ -768,6 +823,13 @@ HRESULT MyDirectDrawSurface7::Unlock( LPRECT lpRect ) {
             LoadAdditionalResources( loading );
         }
         SetReady( true ); // No need to load other stuff to get this ready
+    }
+
+    // Inventory dump for the replacement-map work; off unless GD3D11_TEXDUMP is set.
+    static const bool dumpTextures = std::getenv( "GD3D11_TEXDUMP" ) != nullptr;
+    if ( dumpTextures && !TextureName.empty() && EngineTexture ) {
+        DumpTextureOnce( TextureName, LockedData, OriginalSurfaceDesc.dwWidth, OriginalSurfaceDesc.dwHeight,
+                         EngineTexture->GetRowPitchBytes( 0 ) );
     }
 
 
