@@ -11,9 +11,14 @@ $allowPath = Join-Path $env:GITHUB_WORKSPACE "tools/shader-allowlist.txt"
 $allow = @()
 if (Test-Path $allowPath) { $allow = Get-Content $allowPath | Where-Object { $_ -and -not $_.StartsWith("#") } }
 
-$fxc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter fxc.exe -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -match "x86" } | Select-Object -First 1 -ExpandProperty FullName
-if (-not $fxc) { Write-Host "::error::Nie znaleziono fxc.exe w Windows Kits"; exit 1 }
+# ZMIERZONE 26.11.2026: bez jawnej -Path glob przeszukiwal katalog roboczy i wskazal plik
+# z repozytorium ("Program 'fxc.exe' failed to run: D:\a\GD3D11\...", rc pusty - proces nie
+# wystartowal), wiec bramka meldowala wszystkie 225 shaderow jako zepsute.
+$sdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+$fxc = Get-ChildItem -Path $sdkRoot -Filter fxc.exe -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "\\x86\\fxc\.exe$" } |
+    Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $fxc -or -not (Test-Path $fxc)) { Write-Host "::error::Nie znaleziono fxc.exe w $sdkRoot"; exit 1 }
 Write-Host "fxc: $fxc"
 
 $includes = @("-I", $root, "-I", (Join-Path $root "Shaders"), "-I", (Join-Path $root "include"))
