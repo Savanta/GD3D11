@@ -16,6 +16,10 @@ Two sources:
 Output is a single-channel R8_UNORM DDS written with a DX10 header, which is what the engine's
 DirectXTex loader and the domain shader (.r) expect.
 
+The source may be a PNG/JPG, a normal-map DDS, or one of the dumps the renderer writes with
+GD3D11_TEXDUMP=1 (plain BGRA8), so the chain is: dump the texture in-game, bake it here, drop the
+_HEIGHT.DDS into the replacement root the probe reads.
+
 Usage:
   tools/bake_heightmap.py texture_NORMAL.png texture_HEIGHT.DDS
   tools/bake_heightmap.py wall.png wall_HEIGHT.DDS --from-diffuse --strength 1.5
@@ -31,8 +35,47 @@ from array import array
 from PIL import Image
 
 
+def load_dds(path):
+    """Read the uncompressed DDS variants this project deals with, without Pillow's DDS support.
+
+    The renderer's texture dump (GD3D11_TEXDUMP=1) writes plain BGRA8 with colour masks, and the baker's
+    own output is a DX10 R8_UNORM. Pillow opens neither, so both are decoded here.
+    """
+    data = open(path, "rb").read()
+    if data[:4] != b"DDS ":
+        raise ValueError(f"{path}: not a DDS file")
+
+    height, width = struct.unpack_from("<II", data, 12)
+    pf_flags, fourcc = struct.unpack_from("<II", data, 80)
+    payload = 128
+
+    if pf_flags & 0x4 and fourcc == struct.unpack("<I", b"DX10")[0]:
+        dxgi_format = struct.unpack_from("<I", data, 128)[0]
+        payload = 148
+        if dxgi_format == 61:      # R8_UNORM (the format this tool writes)
+            px = data[payload:payload + width * height]
+            if len(px) < width * height:
+                raise ValueError(f"{path}: truncated R8 payload")
+            return Image.frombytes("L", (width, height), px)
+        if dxgi_format not in (28, 87):   # R8G8B8A8_UNORM, B8G8R8A8_UNORM
+            raise ValueError(f"{path}: unsupported DXGI format {dxgi_format}")
+        order = "RGBA" if dxgi_format == 28 else "BGRA"
+    else:
+        r_mask = struct.unpack_from("<I", data, 92)[0]
+        order = "RGBA" if r_mask == 0x000000ff else "BGRA"
+
+    px = data[payload:payload + width * height * 4]
+    if len(px) < width * height * 4:
+        raise ValueError(f"{path}: truncated payload")
+    # Pillow has no raw "BGRA" decoder for RGB, only for RGBA, so decode four channels and drop alpha.
+    return Image.frombytes("RGBA", (width, height), px, "raw", order).convert("RGB")
+
+
 def load_gray(path):
-    im = Image.open(path)
+    if str(path).lower().endswith(".dds"):
+        im = load_dds(path)
+    else:
+        im = Image.open(path)
     im.load()
     return im.convert("RGBA")
 
