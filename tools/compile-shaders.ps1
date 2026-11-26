@@ -22,16 +22,26 @@ $entries = @("main", "PSMain", "VSMain", "CSMain", "GSMain", "HSMain", "DSMain")
 $files = Get-ChildItem (Join-Path $root "Shaders") -Recurse -Include *.hlsl, *.fx
 Write-Host ("shaderow: " + $files.Count)
 
+$script:printedOne = $false
 $fail = @()
 foreach ($f in $files) {
     $rel = $f.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1) -replace "\\", "/"
     $ok = $false
+    $out = Join-Path $env:TEMP "shader-smoke.cso"
     foreach ($e in $entries) {
         foreach ($p in $profiles) {
-            & $fxc /nologo /T $p /E $e /Fo NUL @includes $f.FullName *> $null
+            # ZMIERZONE 26.11.2026: "/Fo NUL" odrzuca kazde wywolanie (fxc chce zwyklej sciezki),
+            # wiec pierwsza wersja tej bramki uznala wszystkie 225 plikow za zepsute.
+            & $fxc /nologo /T $p /E $e /Fo $out @includes $f.FullName *> $null
             if ($LASTEXITCODE -eq 0) { $ok = $true; break }
         }
         if ($ok) { break }
+    }
+    if (-not $ok -and -not $script:printedOne) {
+        # Raz na przebieg pokaz PRAWDZIWY powod, zeby bramka diagnozowala sama siebie.
+        $script:printedOne = $true
+        Write-Host ("  przyklad bledu fxc (" + $rel + "):")
+        & $fxc /nologo /T ps_5_0 /E main /Fo $out @includes $f.FullName 2>&1 | Select-Object -First 8 | ForEach-Object { Write-Host ("    " + $_) }
     }
     if (-not $ok) {
         if ($allow -contains $rel) { Write-Host "  (znany wyjatek) $rel" }
