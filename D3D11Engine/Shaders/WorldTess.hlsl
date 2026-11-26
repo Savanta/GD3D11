@@ -46,6 +46,12 @@ struct VS_OUT
     float4 farField : TEXCOORD8;
 };
 
+// Luminance of the relief texture at a UV, used by the diffuse mode.
+float WorldTessLuminance( float2 uv )
+{
+    return dot( TX_Relief.SampleLevel( SS_Linear, uv, 0 ).rgb, float3( 0.2126f, 0.7152f, 0.0722f ) );
+}
+
 struct HS_CONSTANT
 {
     float edges[3] : SV_TessFactor;
@@ -129,8 +135,22 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
     const float4 reliefTexel = TX_Relief.SampleLevel( SS_Linear, o.uv, 0 );
     float relief = 0.0f;
     if ( ReliefMode > 2.5f ) {
-        const float lum = dot( reliefTexel.rgb, float3( 0.2126f, 0.7152f, 0.0722f ) );
-        relief = ( lum - 0.5f ) * 2.0f;
+        // High-pass, not level: a bright but *flat* stretch (snow, frost, a painted highlight) has a
+        // large luminance and would otherwise be pushed out as one solid spike - measured, they read
+        // as white icicles hanging off the rock. Only variation inside the texture is height, so the
+        // Laplacian against the four neighbouring texels is what displaces, clamped and weighted down
+        // because a diffuse is a proxy of a proxy.
+        uint tw, th;
+        TX_Relief.GetDimensions( tw, th );
+        const float2 texel = 1.0f / float2( max( (float)tw, 1.0f ), max( (float)th, 1.0f ) );
+        const float c = WorldTessLuminance( o.uv );
+        const float lateral = 0.25f * ( WorldTessLuminance( o.uv + float2( texel.x, 0.0f ) )
+                                      + WorldTessLuminance( o.uv - float2( texel.x, 0.0f ) )
+                                      + WorldTessLuminance( o.uv + float2( 0.0f, texel.y ) )
+                                      + WorldTessLuminance( o.uv - float2( 0.0f, texel.y ) ) );
+        // 0.08 of the triangle edge at DispScale 1: about a centimetre-scale relief on a 1 m
+        // triangle. Anything larger turned texture edges into cones (measured at 1.0 with 0.35).
+        relief = saturate( ( c - lateral ) * 4.0f ) * 0.08f;
     } else if ( ReliefMode > 1.5f ) {
         // 0.5 is the neutral surface, so a flat stretch of the map displaces nothing and the range
         // is symmetric around the original geometry.
