@@ -6435,7 +6435,7 @@ XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
                 const int gx = GetPrivateProfileIntA( "VIDEO", "zVidResFullscreenX", 0, gothicIni.c_str() );
                 const int gy = GetPrivateProfileIntA( "VIDEO", "zVidResFullscreenY", 0, gothicIni.c_str() );
                 if ( gx > 0 && gy > 0 && (gx != res.x || gy != res.y) ) {
-                    Logging::Inf( "Rozdzielczosc gry {}x{} nadpisuje renderera {}x{} (GOTHIC.INI jest zrodlem prawdy)", gx, gy, res.x, res.y );
+                    Logging::Inf( "The game resolution {}x{} overrides the renderer resolution {}x{} (GOTHIC.INI is the source of truth)", gx, gy, res.x, res.y );
                     res.x = gx;
                     res.y = gy;
                 }
