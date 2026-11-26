@@ -65,6 +65,10 @@ The new renderer is able to utilize more of the current GPU generation's power. 
 
 See also [known_issues.md](known_issues.md).
 
+Running this renderer inside a total-conversion mod - where you must not overwrite the mod's own
+textures and meshes, and the renderer's resolution has to agree with the game's: see
+[docs/newbalance.md](docs/newbalance.md).
+
 ### Known causes of crashing
 * If you have problems with launching game after installing GD3D11 - for example getting Access Denied(0x45a), reinstall your *Visual C++ Redistributable v14 (X86)* to latest version from [Microsoft website](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170), mod stopped working on older VCR due to some Microsoft changes in Platform Toolset.  
   https://aka.ms/vc14/vc_redist.x86.exe
