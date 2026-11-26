@@ -19,7 +19,7 @@ cbuffer TessParams : register( b0 )
     float2 ScreenSize;   // render target size in pixels, for the screen-space edge measurement
     float  TargetPixels; // one tessellated edge should be about this long on screen
     float  MinFactor;    // never go below this, so a small patch still gets a real patch
-    float  ReliefMode;   // 0 = no relief, 1 = slope of the normal map, 2 = a real height map
+    float  ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map, 3 = diffuse luminance
     float  TessPad;
 };
 
@@ -118,17 +118,25 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
                            + length( p[2].viewPos - p[1].viewPos )
                            + length( p[0].viewPos - p[2].viewPos ) ) / 3.0f;
 
-    // Texture relief. Mode 2 is a real height map ('<tex>_HEIGHT.DDS'): 0 is the base surface and 1
-    // the peak, so the displacement is the height itself. Mode 1 is the fallback for materials that
-    // only ship a normal map: its tangent-space slope (1 - n.z, 0 on a flat texel, half weight) is a
-    // proxy, not a height. Mode 0 means the white texture is bound and nothing is displaced.
+    // Texture relief, in the mode the draw picked for this material:
+    //   3 - the material's own diffuse, luminance as height. Always available (every world material
+    //       has a diffuse), good for brick, stone, wood and metal grime, wrong wherever brightness is
+    //       not height - painted highlights, baked shadows, decals. This is what makes the feature
+    //       work in this mod, where no world texture ever carries an extra map.
+    //   2 - '<tex>_HEIGHT.DDS': 0 is the base surface, 1 the peak, so the displacement is the height.
+    //   1 - the normal map's tangent-space slope (1 - n.z, half weight): a proxy, not a height.
+    //   0 - white texture, nothing displaced.
+    const float4 reliefTexel = TX_Relief.SampleLevel( SS_Linear, o.uv, 0 );
     float relief = 0.0f;
-    if ( ReliefMode > 1.5f ) {
+    if ( ReliefMode > 2.5f ) {
+        const float lum = dot( reliefTexel.rgb, float3( 0.2126f, 0.7152f, 0.0722f ) );
+        relief = ( lum - 0.5f ) * 2.0f;
+    } else if ( ReliefMode > 1.5f ) {
         // 0.5 is the neutral surface, so a flat stretch of the map displaces nothing and the range
         // is symmetric around the original geometry.
-        relief = ( TX_Relief.SampleLevel( SS_Linear, o.uv, 0 ).r - 0.5f ) * 2.0f;
+        relief = ( reliefTexel.r - 0.5f ) * 2.0f;
     } else if ( ReliefMode > 0.5f ) {
-        const float3 nTile = TX_Relief.SampleLevel( SS_Linear, o.uv, 0 ).xyz * 2.0f - 1.0f;
+        const float3 nTile = reliefTexel.xyz * 2.0f - 1.0f;
         relief = saturate( 1.0f - nTile.z ) * 0.5f;
     }
 

@@ -5427,8 +5427,9 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
     const auto drawWorldRange = [this, tessActive, &tessRanges, &boundRelief, &boundReliefMode, &tp]( const MeshDrawRange& range ) {
         const unsigned int offset = range.Mesh->BaseIndexLocation + range.IndexOffset;
         if ( tessActive && range.IndexCount % 3 == 0 ) {
-            // Height map first (real displacement), then the normal map (slope proxy), then white -
-            // which decodes to a flat normal and to zero relief, so no branch is needed in the shader.
+            // Best source first: a real height map, then a normal map's slope, then the material's own
+            // diffuse (luminance). The last one is always there - and in this mod it is the only one
+            // that ever is, because no world texture carries an additional map (see the probe log).
             ID3D11ShaderResourceView* relief = nullptr;
             float reliefMode = 0.0f;
             if ( range.Key.Texture ) {
@@ -5437,6 +5438,10 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
                         reliefMode = 2.0f;
                     } else if ( ( relief = GetSrvFromGfx( surface->GetNormalmap() ) ) != nullptr ) {
                         reliefMode = 1.0f;
+                    } else if ( surface->GetEngineTexture() ) {
+                        // The diffuse, sampled in the domain stage as a height proxy.
+                        relief = GetSrvFromGfx( surface->GetEngineTexture() );
+                        reliefMode = relief ? 3.0f : 0.0f;
                     }
                 }
             }
