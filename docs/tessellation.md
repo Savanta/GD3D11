@@ -81,15 +81,20 @@ effect is live there; they persist as `[Display] Tessellation` / `TessellationDi
 ## Texture relief (26.11.2026)
 
 The domain stage displaces along a **relief texture** (`TX_Relief`, t0, with the engine's linear
-sampler), sampled per domain vertex, in one of three modes carried in the patch constant buffer:
+sampler), sampled per domain vertex, in one of four modes carried in the patch constant buffer. The
+draw picks the best source a material has, in this order:
 
 - **mode 2 - height map**: `'<texture>_HEIGHT.DDS'` under `Heightmaps_<gameName>`, found by the same
   synchronous probe + async load + refcounted cache as the normal maps (`MyDirectDrawSurface7`).
   0.5 is the neutral surface and the shader displaces by `(h - 0.5) * 2`, so a flat stretch of the
   map moves nothing. This is real height.
-- **mode 1 - normal map slope**: for materials that ship only a normal map, `1 - n.z` (half weight)
-  is a *proxy*, not a height: it follows the texture grain but does not reconstruct shape.
-- **mode 0 - white texture**: decodes to a flat normal, exactly zero relief. No branch in the draw.
+- **mode 1 - normal map slope**: `1 - n.z` (half weight) is a *proxy*, not a height: it follows the
+  texture grain but does not reconstruct shape.
+- **mode 3 - the material's own diffuse**: luminance as height, `(lum - 0.5) * 2`. Every world
+  material has a diffuse and nothing has to be authored, which makes this the mode that actually
+  runs today. Good for brick, stone, wood and metal grime; wrong wherever brightness is not height
+  (painted highlights, baked shadows, decals). `docs/heightmaps.md` lists it as option 2.
+- **mode 0 - white texture**: decodes to a flat normal, exactly zero relief.
 
 The SRV and the mode are per material, so both ride the patch draw; the constant buffer is
 re-uploaded only when the mode changes, and the pool hashes the payload.
@@ -101,15 +106,15 @@ non-integrable noise that plain integration turns into spikes), or from a diffus
 data does not: a height set baked from another pack's textures is a derivative work
 (`docs/heightmaps.md`).
 
-**Measured limit (26.11.2026): in this mod the relief channel never fires.** With
+**Measured limit (26.11.2026): extra maps never reach world textures in this mod.** With
 `[General] EnableDebugLog=1` the probe line above shows that only **10** textures ever reach
 `MyDirectDrawSurface7::LoadAdditionalResources` in a whole session, and all ten are menu/UI
 (`STARTSCREEN`, `FONT_*`, `PROGRESS*`, ...). No world texture is probed, so no world material can
 carry a `_NORMAL.DDS` or a `_HEIGHT.DDS` - a file dropped into `Heightmaps_<gameName>` stays unused
-(verified by placing one for a probed water texture and restarting). Consequence: modes 1 and 2 are
-dead in practice here and the visible displacement is the PN bump alone. Feeding the relief from the
-material's own texture, or finding why world textures bypass the probe, is the next real step -
-`docs/heightmaps.md`'s whole premise rests on it.
+(verified by placing one for a probed water texture and restarting). Modes 1 and 2 are therefore
+dead here, which is why **mode 3 (the material's own diffuse) is the mode that actually displaces
+the world**. Finding why world textures bypass the probe - and feeding a real height channel through
+it - is what `docs/heightmaps.md` still needs.
 
 ## Next step
 
