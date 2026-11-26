@@ -6135,6 +6135,7 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
     WritePrivateProfileStringA( "Display", "ResolutionScale", to_string_locale_independent( s.ResolutionScalePercent ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Upscaler", to_string_locale_independent( static_cast<int>(s.Upscaler) ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Tessellation", to_string_locale_independent( s.Tessellation ).c_str(), ini.c_str() );
+    WritePrivateProfileStringA( "Display", "TessellationTargetPixels", to_string_locale_independent( s.TessellationTargetPixels ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "TessellationDisplacement", to_string_locale_independent( s.TessellationDisplacement ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "VSync", to_string_locale_independent( s.EnableVSync ? TRUE : FALSE ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "ForceFOV", to_string_locale_independent( s.ForceFOV ? TRUE : FALSE ).c_str(), ini.c_str() );
@@ -6450,6 +6451,7 @@ XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
         s.ResolutionScalePercent = std::clamp<int>( GetPrivateProfileIntA( "Display", "ResolutionScale", ds.ResolutionScalePercent, ini.c_str() ), 25, 200 );
         s.Upscaler = (GothicRendererSettings::E_Upscaler)std::clamp<int>( GetPrivateProfileIntA( "Display", "Upscaler", ds.Upscaler, ini.c_str() ), 0, GothicRendererSettings::E_Upscaler::_UPSCALER_NUM_MODES - 1 );
         s.Tessellation = std::clamp<int>( GetPrivateProfileIntA( "Display", "Tessellation", ds.Tessellation, ini.c_str() ), 0, 64 );
+        s.TessellationTargetPixels = std::clamp<int>( GetPrivateProfileIntA( "Display", "TessellationTargetPixels", ds.TessellationTargetPixels, ini.c_str() ), 1, 64 );
         {
             char tessDispBuf[64] = {};
             GetPrivateProfileStringA( "Display", "TessellationDisplacement", "", tessDispBuf, sizeof( tessDispBuf ), ini.c_str() );

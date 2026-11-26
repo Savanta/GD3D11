@@ -5385,12 +5385,21 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
                 XMFLOAT4X4 Proj;
                 float Factor;
                 float Disp;
-                float Pad0;
-                float Pad1;
+                XMFLOAT2 ScreenSize;
+                float TargetPixels;
+                float MinFactor;
+                XMFLOAT2 Pad;
             } tp = {};
             tp.Proj = Engine::GAPI->GetProjectionMatrix();
             tp.Factor = static_cast<float>( std::clamp( tessFactor, 1, 64 ) );
             tp.Disp = tessDisp;
+            // Screen-space edge measurement: the hull stage needs the target size, not a distance.
+            const auto res = GetResolution();
+            tp.ScreenSize = XMFLOAT2( static_cast<float>( res.x ), static_cast<float>( res.y ) );
+            tp.TargetPixels = static_cast<float>( std::clamp(
+                Engine::GAPI->GetRendererState().RendererSettings.TessellationTargetPixels, 1, 64 ) );
+            tp.MinFactor = 1.0f;
+            static_assert( sizeof( tp ) == 96, "WorldTessParams must match TessParams in WorldTess.hlsl" );
 
             // Both stages read b0; D3D11HDShader::UpdateBuffer only binds the domain stage.
             const ConstantBufferAllocation alloc = GetConstantBufferPool()->Allocate( &tp, sizeof( tp ) );
@@ -5739,8 +5748,8 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
         static bool tessLogged = false;
         if ( !tessLogged && tessRanges > 0 ) {
             tessLogged = true;
-            Logging::Inf( "Tessellation: displacing world meshes (factor {}, scale {}, {} ranges as 3-control-point patches)",
-                tessFactor, tessDisp, tessRanges );
+            Logging::Inf( "Tessellation: displacing world meshes (factor {}, target {} px, scale {}, {} ranges as 3-control-point patches)",
+                tessFactor, Engine::GAPI->GetRendererState().RendererSettings.TessellationTargetPixels, tessDisp, tessRanges );
         }
     }
 

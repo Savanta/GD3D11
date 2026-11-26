@@ -13,11 +13,16 @@
 
 cbuffer TessParams : register( b0 )
 {
-    matrix Proj;       // view -> clip; same convention as VS_Ex's M_ViewProj (mul(vector, matrix))
-    float  Factor;     // tessellation factor of every edge and of the interior, 1..64
-    float  DispScale;  // displacement as a fraction of the patch's mean edge length
+    matrix Proj;         // view -> clip; same convention as VS_Ex's M_ViewProj (mul(vector, matrix))
+    float  Factor;       // ceiling for the tessellation factor of any edge, 1..64
+    float  DispScale;    // displacement as a fraction of the patch's mean edge length
+    float2 ScreenSize;   // render target size in pixels, for the screen-space edge measurement
+    float  TargetPixels; // one tessellated edge should be about this long on screen
+    float  MinFactor;    // never go below this, so a small patch still gets a real patch
     float2 TessPad;
 };
+
+#include "AdaptiveTesselation.h"
 
 // Material normal map, bound to the domain stage by the world draw. Sampling it per domain vertex
 // is what makes the displaced surface follow the texture (brick rows, rock grain) instead of only
@@ -46,16 +51,33 @@ struct HS_CONSTANT
     float inside   : SV_InsideTessFactor;
 };
 
-// A uniform factor cannot crack between patches: neighbours always share it. Distance-adaptive
-// factors need per-edge values from both endpoints (AdaptiveTesselation.h has them) - next step.
-HS_CONSTANT HSConstant( InputPatch<VS_OUT, 3> patch )
+// A uniform factor cannot crack between patches, but it also multiplies every triangle in the world
+// by the same amount - including the ones a few pixels wide at the horizon. These give each edge a
+// factor from its own on-screen length instead: the split stops as soon as an edge is about
+// TargetPixels long, and the ceiling is Factor. Symmetric in both endpoints, so neighbours agree.
+float2 WorldTessScreenPos( float3 viewPos )
 {
-    const float f = clamp( Factor, 1.0f, 64.0f );
+    const float4 clip = mul( float4( viewPos, 1.0f ), Proj );
+    return ( clip.xy / max( abs( clip.w ), 1e-4f ) * 0.5f + 0.5f ) * ScreenSize;
+}
+
+float WorldTessEdgeFactor( float3 a, float3 b )
+{
+    // AMD's helper (Shaders/AdaptiveTesselation.h) returns a 0..1 scale for the edge, with 1 at the
+    // maximum factor. Mapped onto [MinFactor, Factor] so a small edge still gets a real patch
+    // instead of being culled by a zero factor.
+    const float scale = GetScreenSpaceAdaptiveScaleFactor(
+        WorldTessScreenPos( a ), WorldTessScreenPos( b ), max( Factor, MinFactor ), max( TargetPixels, 1.0f ) );
+    return MinFactor + scale * ( max( Factor, MinFactor ) - MinFactor );
+}
+
+HS_CONSTANT HSConstant( InputPatch<VS_OUT, 3> p )
+{
     HS_CONSTANT o;
-    o.edges[0] = f;
-    o.edges[1] = f;
-    o.edges[2] = f;
-    o.inside   = f;
+    o.edges[0] = WorldTessEdgeFactor( p[1].viewPos, p[2].viewPos );
+    o.edges[1] = WorldTessEdgeFactor( p[2].viewPos, p[0].viewPos );
+    o.edges[2] = WorldTessEdgeFactor( p[0].viewPos, p[1].viewPos );
+    o.inside   = max( o.edges[0], max( o.edges[1], o.edges[2] ) );
     return o;
 }
 

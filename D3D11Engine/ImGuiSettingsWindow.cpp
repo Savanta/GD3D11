@@ -816,7 +816,11 @@ void RenderWorldTab( GothicRendererSettings& settings ) {
 
     SliderIntRow( "Factor", "##Tessellation", &settings.Tessellation, 0, 64, "%d",
         "Subdivides the static world mesh into 3-control-point patches; 0 = off.\n"
-        "Off costs nothing: the world is drawn as plain triangles." );
+        "Off costs nothing: the world is drawn as plain triangles.\n"
+        "This is the ceiling - edges are split only until they reach 'Target edge' on screen." );
+    SliderIntRow( "Target edge", "##TessellationTargetPixels", &settings.TessellationTargetPixels, 1, 64, "%d px",
+        "On-screen length one tessellated edge should be about. Edges are split until they are this\n"
+        "long, so cost follows what you actually see instead of multiplying every triangle." );
     SliderFloatRow( "Displacement", "##TessellationDisplacement", &settings.TessellationDisplacement,
         0.0f, 20.0f, "%.2f",
         "How far the surface is pushed along its normal, as a fraction of the triangle's mean edge\n"

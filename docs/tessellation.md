@@ -66,8 +66,10 @@ effect is live there; they persist as `[Display] Tessellation` / `TessellationDi
 `system/GD3D11/UserSettings.ini`.
 
 **Known limits:**
-- One uniform factor per patch; `AdaptiveTesselation.h` (distance/screen-space factors) is still
-  unused, so the factor does not fall off with distance.
+- Per-edge factors are screen-space adaptive (`Factor` is the ceiling, `TessellationTargetPixels` the
+  target edge length), so cost follows what is on screen. `AdaptiveTesselation.h`'s orientation
+  (silhouette) and back-face helpers are still unused: back-face culling needs the view-space handedness
+  confirmed on screen before it can be trusted, because a wrong sign culls the whole world.
 - Shadows (`ShadowPass_DrawWorldMesh`) draw the undisplaced world, so a strongly displaced surface
   does not cast a matching shadow.
 - The amplitude is a fraction of the patch's mean edge length. The term `2*x*y*z` peaks at 2/27 and
