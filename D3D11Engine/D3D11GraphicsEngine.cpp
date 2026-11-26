@@ -5359,12 +5359,22 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
     MeshInfo* meshInfo = Engine::GAPI->GetWrappedWorldMesh();
     BindWrappedWorldMeshPacked( meshInfo );
 
+    D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+    GetContext()->DSSetShader( nullptr, nullptr, 0 );
+    GetContext()->HSSetShader( nullptr, nullptr, 0 );
+
     // --- Tessellation of the static world (docs/tessellation.md) ---
     // The visible world passes through this function, not through GothicAPI::DrawMeshInfo, so the
-    // patch draw has to live here. The depth prepass and the colour pass both go through it: a
-    // prepass that kept the undisplaced surface would reject the displaced fragments of the
-    // Forward+ lit pass (GREATER_EQUAL against the prepass depth) and punch holes in the picture,
-    // which is why tessellation also turns the prepass' position-only shortcut off below.
+    // patch draw has to live here. Binding must come AFTER the two HSSetShader/DSSetShader resets
+    // above: they are this function's own "draw triangles, not patches" setup, and binding before
+    // them left 848 patch draws issued with no hull/domain shader bound - which draws nothing at
+    // all, and is exactly how the static world mesh (the terrain) disappeared while the log happily
+    // reported tessellated ranges.
+    //
+    // The depth prepass and the colour pass both go through this: a prepass that kept the
+    // undisplaced surface would reject the displaced fragments of the Forward+ lit pass
+    // (GREATER_EQUAL against the prepass depth) and punch holes in the picture, which is why
+    // tessellation also turns the prepass' position-only shortcut off below.
     const int tessFactor = Engine::GAPI->GetRendererState().RendererSettings.Tessellation;
     const float tessDisp = Engine::GAPI->GetRendererState().RendererSettings.TessellationDisplacement;
     bool tessActive = false;
@@ -5421,10 +5431,6 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
 
     // Sorted later, against every other blended drawable, by the transparency queue.
     TransparencyQueue& transparencyQueue = Engine::GAPI->GetTransparencyQueue();
-
-    D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
-    GetContext()->DSSetShader( nullptr, nullptr, 0 );
-    GetContext()->HSSetShader( nullptr, nullptr, 0 );
 
     {
         ZoneScopedN( "DrawWorldMesh::BuildMeshList" );
