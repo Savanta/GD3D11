@@ -6094,6 +6094,16 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
     WritePrivateProfileStringA( "Display", "AnisotropicFiltering", to_string_locale_independent( s.AnisotropicFiltering ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Width", to_string_locale_independent( res.x ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Height", to_string_locale_independent( res.y ).c_str(), ini.c_str() );
+    // Ta sama zgodnosc w druga strone: menu F11 samo mowi, ze zmiana wymaga restartu, wiec
+    // zapisujemy wybor takze do GOTHIC.INI. Inaczej restart wraca do starej rozdzielczosci,
+    // a do tego czasu sesja jest rozjechana (mysz i ekwipunek - known_issues.md).
+    {
+        const std::string gothicIni = GothicIniFromRendererIni( ini );
+        if ( !gothicIni.empty() && Toolbox::FileExists( gothicIni ) ) {
+            WritePrivateProfileStringA( "VIDEO", "zVidResFullscreenX", to_string_locale_independent( res.x ).c_str(), gothicIni.c_str() );
+            WritePrivateProfileStringA( "VIDEO", "zVidResFullscreenY", to_string_locale_independent( res.y ).c_str(), gothicIni.c_str() );
+        }
+    }
     WritePrivateProfileStringA( "Display", "ResolutionScale", to_string_locale_independent( s.ResolutionScalePercent ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Upscaler", to_string_locale_independent( static_cast<int>(s.Upscaler) ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "VSync", to_string_locale_independent( s.EnableVSync ? TRUE : FALSE ).c_str(), ini.c_str() );
@@ -6245,6 +6255,28 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
 }
 
 /** Loads the users settings from the menu */
+// ZMIERZONE 26.11.2026 (sterowanie + New Balance): renderer trzyma WLASNA rozdzielczosc
+// ([Display] Width/Height w swoim ini), a Gothic swoja w GOTHIC.INI ([VIDEO] zVidResFullscreenX/Y).
+// Gdy sie rozjada, UI gry liczy sie w innej rozdzielczosci niz obraz, a kursor mapuje sie przez
+// wirtualny ekran gry - dokladnie dwa objawy z known_issues.md ("the Inventory is out of screen",
+// "does not properly respond to mouse input"). GD3D11 nigdy nie dotykal tamtego pliku, wiec
+// rozdzielczosci rozjezdzaly sie przy kazdej zmianie z menu F11.
+// Ten plik uznajemy za jedno zrodlo prawdy: przy starcie gramy w rozdzielczosci gry, a zmiana
+// z menu jest do niej dopisywana (menu samo mowi, ze wymaga restartu).
+static std::string GothicIniFromRendererIni( const std::string& rendererIni ) {
+    // ...\system\GD3D11\UserSettings.ini  ->  ...\system\GOTHIC.INI
+    std::string cut = rendererIni;
+    for ( int i = 0; i < 2; ++i ) {
+        const auto pos = cut.find_last_of( "\\/" );
+        if ( pos == std::string::npos ) {
+            return std::string();
+        }
+        cut.erase( pos );
+    }
+    return cut + "\\GOTHIC.INI";
+}
+
+
 XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
     TCHAR NPath[MAX_PATH];
     // Returns Gothic directory.
@@ -6392,6 +6424,21 @@ XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
             GetPrivateProfileIntA( "Display", "AnisotropicFiltering", ds.AnisotropicFiltering, ini.c_str() ), 1, 16 ) ) ) );
         res.x = GetPrivateProfileIntA( "Display", "Width", desktopRect.right, ini.c_str() );
         res.y = GetPrivateProfileIntA( "Display", "Height", desktopRect.bottom, ini.c_str() );
+        // Rozdzielczosc silnika gry jest nadrzedna: to jej trzyma sie interfejs i mapowanie
+        // kursora, wiec obraz musi sie do niej dostosowac, a nie odwrotnie (patrz komentarz
+        // przy GothicIniFromRendererIni). Bez tego F11 rozjezdza UI z obrazem.
+        {
+            const std::string gothicIni = GothicIniFromRendererIni( ini );
+            if ( !gothicIni.empty() && Toolbox::FileExists( gothicIni ) ) {
+                const int gx = GetPrivateProfileIntA( "VIDEO", "zVidResFullscreenX", 0, gothicIni.c_str() );
+                const int gy = GetPrivateProfileIntA( "VIDEO", "zVidResFullscreenY", 0, gothicIni.c_str() );
+                if ( gx > 0 && gy > 0 && (gx != res.x || gy != res.y) ) {
+                    Logging::Inf( "Rozdzielczosc gry {}x{} nadpisuje renderera {}x{} (GOTHIC.INI jest zrodlem prawdy)", gx, gy, res.x, res.y );
+                    res.x = gx;
+                    res.y = gy;
+                }
+            }
+        }
         s.ResolutionScalePercent = std::clamp<int>( GetPrivateProfileIntA( "Display", "ResolutionScale", ds.ResolutionScalePercent, ini.c_str() ), 25, 200 );
         s.Upscaler = (GothicRendererSettings::E_Upscaler)std::clamp<int>( GetPrivateProfileIntA( "Display", "Upscaler", ds.Upscaler, ini.c_str() ), 0, GothicRendererSettings::E_Upscaler::_UPSCALER_NUM_MODES - 1 );
         s.EnableVSync = GetPrivateProfileBoolA( "Display", "VSync", ds.EnableVSync, ini );
