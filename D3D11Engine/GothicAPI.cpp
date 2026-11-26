@@ -6012,6 +6012,30 @@ XRESULT GothicAPI::LoadVegetation( const std::string& file ) {
     return XR_SUCCESS;
 }
 
+// MEASURED 26.11.2026 (SaiyansKing fork + New Balance): the renderer keeps its OWN resolution
+// ([Display] Width/Height in this ini) and Gothic keeps another one in GOTHIC.INI
+// ([VIDEO] zVidResFullscreenX/Y). When they disagree the game lays out its UI in a different
+// resolution than the picture and maps the cursor through its own virtual screen - exactly the
+// two symptoms in known_issues.md ("the Inventory is out of screen", "does not properly respond
+// to mouse input"). GD3D11 never touched that file, so the two drifted apart on every change
+// made from the F11 menu.
+// That file is treated as the single source of truth: at startup we render at the game's
+// resolution, and a change from the menu is written into it too (the menu itself says the change
+// needs a restart).
+static std::string GothicIniFromRendererIni( const std::string& rendererIni ) {
+    // ...\system\GD3D11\UserSettings.ini  ->  ...\system\GOTHIC.INI
+    std::string cut = rendererIni;
+    for ( int i = 0; i < 2; ++i ) {
+        const auto pos = cut.find_last_of( "\\/" );
+        if ( pos == std::string::npos ) {
+            return std::string();
+        }
+        cut.erase( pos );
+    }
+    return cut + "\\GOTHIC.INI";
+}
+
+
 /** Saves the users settings from the menu */
 XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
     TCHAR NPath[MAX_PATH];
@@ -6094,9 +6118,9 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
     WritePrivateProfileStringA( "Display", "AnisotropicFiltering", to_string_locale_independent( s.AnisotropicFiltering ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Width", to_string_locale_independent( res.x ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Height", to_string_locale_independent( res.y ).c_str(), ini.c_str() );
-    // Ta sama zgodnosc w druga strone: menu F11 samo mowi, ze zmiana wymaga restartu, wiec
-    // zapisujemy wybor takze do GOTHIC.INI. Inaczej restart wraca do starej rozdzielczosci,
-    // a do tego czasu sesja jest rozjechana (mysz i ekwipunek - known_issues.md).
+    // Same agreement, the other way round: the F11 menu itself says a change needs a restart, so
+    // the choice is written into GOTHIC.INI as well. Otherwise that restart reverts to the old
+    // resolution while the live session stays split (mouse and inventory - known_issues.md).
     {
         const std::string gothicIni = GothicIniFromRendererIni( ini );
         if ( !gothicIni.empty() && Toolbox::FileExists( gothicIni ) ) {
@@ -6255,28 +6279,6 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
 }
 
 /** Loads the users settings from the menu */
-// ZMIERZONE 26.11.2026 (sterowanie + New Balance): renderer trzyma WLASNA rozdzielczosc
-// ([Display] Width/Height w swoim ini), a Gothic swoja w GOTHIC.INI ([VIDEO] zVidResFullscreenX/Y).
-// Gdy sie rozjada, UI gry liczy sie w innej rozdzielczosci niz obraz, a kursor mapuje sie przez
-// wirtualny ekran gry - dokladnie dwa objawy z known_issues.md ("the Inventory is out of screen",
-// "does not properly respond to mouse input"). GD3D11 nigdy nie dotykal tamtego pliku, wiec
-// rozdzielczosci rozjezdzaly sie przy kazdej zmianie z menu F11.
-// Ten plik uznajemy za jedno zrodlo prawdy: przy starcie gramy w rozdzielczosci gry, a zmiana
-// z menu jest do niej dopisywana (menu samo mowi, ze wymaga restartu).
-static std::string GothicIniFromRendererIni( const std::string& rendererIni ) {
-    // ...\system\GD3D11\UserSettings.ini  ->  ...\system\GOTHIC.INI
-    std::string cut = rendererIni;
-    for ( int i = 0; i < 2; ++i ) {
-        const auto pos = cut.find_last_of( "\\/" );
-        if ( pos == std::string::npos ) {
-            return std::string();
-        }
-        cut.erase( pos );
-    }
-    return cut + "\\GOTHIC.INI";
-}
-
-
 XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
     TCHAR NPath[MAX_PATH];
     // Returns Gothic directory.
@@ -6424,9 +6426,9 @@ XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
             GetPrivateProfileIntA( "Display", "AnisotropicFiltering", ds.AnisotropicFiltering, ini.c_str() ), 1, 16 ) ) ) );
         res.x = GetPrivateProfileIntA( "Display", "Width", desktopRect.right, ini.c_str() );
         res.y = GetPrivateProfileIntA( "Display", "Height", desktopRect.bottom, ini.c_str() );
-        // Rozdzielczosc silnika gry jest nadrzedna: to jej trzyma sie interfejs i mapowanie
-        // kursora, wiec obraz musi sie do niej dostosowac, a nie odwrotnie (patrz komentarz
-        // przy GothicIniFromRendererIni). Bez tego F11 rozjezdza UI z obrazem.
+        // The game engine's resolution wins: the UI and the cursor mapping follow it, so the
+        // picture has to follow it too and not the other way round (see GothicIniFromRendererIni).
+        // Without this the F11 menu splits the interface from the picture.
         {
             const std::string gothicIni = GothicIniFromRendererIni( ini );
             if ( !gothicIni.empty() && Toolbox::FileExists( gothicIni ) ) {
