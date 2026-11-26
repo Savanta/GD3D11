@@ -57,6 +57,18 @@ is even less wired than the other tree, where at least an editor path writes the
    visible, so the value comes from displacing along the interpolated normal by the
    barycentric-weighted deviation of the control points - the classic PN-triangle term.
 
+## Where the hook has to live (measured 26.11.2026)
+
+The first implementation hooked `GothicAPI::DrawMeshInfo`. A world run with factor 8 and a
+deliberately extreme 5.0 displacement produced an untouched picture **and an empty log**, so the
+branch never ran - proved by the log line added for exactly that purpose, not by eyeballing frames
+(two earlier attempts compared a menu frame against a world frame and were worthless).
+
+Reason, from the code: `D3D11ForwardPlusRenderer.cpp` has **zero** calls to `DrawMeshInfo`. This
+build draws the visible world through Forward+, which has its own draw path; `DrawMeshInfo` is only
+reached from the poly-strip / animated-texture path. The tessellated draw therefore has to be
+attached to the Forward+ static-mesh draw, where the geometry actually passes.
+
 ## How to tell whether it works
 
 `hull shader:` and `domain shader:` lines in `Log.txt` **during a world run**. A run that reaches
