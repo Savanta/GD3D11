@@ -75,6 +75,28 @@ jobs:
           project: ${{ matrix.project }}
           output-file: ${{ matrix.output-file }}
 
+  # Bramka jakosci shaderow: 225 plikow w D3D11Engine/Shaders kompiluje sie dzis WYLACZNIE w graczu,
+  # wiec literowka w shaderze dociera do ludzi. Zadanie kompiluje je fxc i nie pozwala na regresje;
+  # lista znanych wyjatkow jest mierzona z pierwszego przebiegu (artefakt), nie zgadywana.
+  shader-smoke:
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Compile every shader
+        shell: pwsh
+        run: ./tools/compile-shaders.ps1
+
+      - name: Upload the measured allowlist
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: shader-allowlist
+          path: tools/shader-allowlist.txt
+          if-no-files-found: ignore
+
   package-artifacts:
     needs: build
     runs-on: ubuntu-latest
