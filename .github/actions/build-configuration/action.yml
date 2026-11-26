@@ -55,8 +55,12 @@ runs:
           "--x-manifest-root=$env:GITHUB_WORKSPACE" `
           "--x-install-root=$env:GITHUB_WORKSPACE\vcpkg_installed"
 
+    # MEASURED 26.11.2026: the cache key is the same for every matrix job (it describes the vcpkg
+    # triplet, not the configuration), so on a cold push all ten jobs raced to save it and nine
+    # reported "Cache save failed" - ten red annotations per run and nine redundant uploads. The
+    # binary cache is configuration-independent, so one publisher per run is enough.
     - name: Save vcpkg binaries and downloads
-      if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+      if: inputs.configuration == 'Release' && steps.vcpkg-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: |

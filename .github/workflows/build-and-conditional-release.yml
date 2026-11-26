@@ -95,6 +95,11 @@ jobs:
     if: github.event_name == 'push' && (github.ref_name == 'master' || github.ref_type == 'tag')
     needs: package-artifacts
     runs-on: ubuntu-latest
+    # MEASURED 26.11.2026: without this the job inherits the repository default token permissions
+    # (read-only), so both publishing the release and generating its notes fail with
+    # "Error 403: Resource not accessible by integration". Only this job needs write access.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout only composite actions
