@@ -1,33 +1,36 @@
-// Tessellation for world meshes. See docs/tessellation.md for why this file had to be written:
-// the PNAEN pair that ships with the tree targets the mesh editor's preview vertex shader, so it
-// cannot be bound to world geometry.
+// Tessellation of the static world mesh. See docs/tessellation.md.
 //
 // Both stages live here: the loader compiles HSMain as hs_5_0 and DSMain as ds_5_0 from one path,
 // the same way OceanTess.hlsl is wired.
 //
-// VS_OUT mirrors VS_ExInstancedObj.hlsl's output exactly. That match is the whole point - a hull
-// shader whose input signature differs from the vertex shader in the slot is a device error, not a
-// visual glitch.
+// VS_OUT mirrors VS_ExPacked.hlsl's VS_OUTPUT field for field. That match is the whole point - the
+// visible world is drawn by VS_ExPacked from the packed 36-byte stream (D3D11GraphicsEngine::
+// DrawWorldMesh), and a hull shader whose input signature differs from the vertex shader in the
+// slot is a device error, not a visual glitch.
+//
+// Both stages read TessParams at b0, so the engine binds that buffer to the hull AND the domain
+// stage (D3D11HDShader::UpdateBuffer only reaches the domain shader).
 
-cbuffer TessParams : register(b0)
+cbuffer TessParams : register( b0 )
 {
-    float4x4 Proj;      // stored pre-transposed by the engine: multiply row-vector style
-    float    Factor;    // tessellation factor, edges and interior alike
-    float    DispScale; // PN displacement scale, in view-space units
-    float2   _tessPad;
+    matrix Proj;       // view -> clip; same convention as VS_Ex's M_ViewProj (mul(vector, matrix))
+    float  Factor;     // tessellation factor of every edge and of the interior, 1..64
+    float  DispScale;  // displacement as a fraction of the patch's mean edge length
+    float2 TessPad;
 };
 
 struct VS_OUT
 {
-    float4 pos      : SV_Position;
     float2 uv       : TEXCOORD0;
     float2 uv2      : TEXCOORD1;
     float4 diffuse  : TEXCOORD2;
-    float4 tangent  : TEXCOORD3;
     float3 normalVS : TEXCOORD4;
     float3 viewPos  : TEXCOORD5;
     float4 clip     : TEXCOORD6;
     float4 prevClip : TEXCOORD7;
+    float4 tangent  : TEXCOORD3;
+    float4 pos      : SV_Position;
+    float4 farField : TEXCOORD8;
 };
 
 struct HS_CONSTANT
@@ -37,15 +40,15 @@ struct HS_CONSTANT
 };
 
 // A uniform factor cannot crack between patches: neighbours always share it. Distance-adaptive
-// factors need per-edge values from both endpoints (AdaptiveTesselation.h has them) - that is the
-// next step, not this one.
+// factors need per-edge values from both endpoints (AdaptiveTesselation.h has them) - next step.
 HS_CONSTANT HSConstant( InputPatch<VS_OUT, 3> patch )
 {
+    const float f = clamp( Factor, 1.0f, 64.0f );
     HS_CONSTANT o;
-    o.edges[0] = Factor;
-    o.edges[1] = Factor;
-    o.edges[2] = Factor;
-    o.inside   = Factor;
+    o.edges[0] = f;
+    o.edges[1] = f;
+    o.edges[2] = f;
+    o.inside   = f;
     return o;
 }
 
@@ -69,17 +72,25 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
     o.tangent  = p[0].tangent * bary.x + p[1].tangent * bary.y + p[2].tangent * bary.z;
     o.clip     = p[0].clip * bary.x + p[1].clip * bary.y + p[2].clip * bary.z;
     o.prevClip = p[0].prevClip * bary.x + p[1].prevClip * bary.y + p[2].prevClip * bary.z;
+    o.farField = p[0].farField * bary.x + p[1].farField * bary.y + p[2].farField * bary.z;
 
     float3 v = p[0].viewPos * bary.x + p[1].viewPos * bary.y + p[2].viewPos * bary.z;
     float3 n = normalize( p[0].normalVS * bary.x + p[1].normalVS * bary.y + p[2].normalVS * bary.z );
 
     // PN-triangle: push the subdivided surface along the interpolated normal by the barycentric
-    // deviation of the control points. Without this term subdividing a flat triangle only costs
-    // triangles and changes nothing visible - the silhouettes stay exactly as angular.
-    float w = 2.0 * bary.x * bary.y * bary.z;
+    // deviation of the control points. 2xyz peaks at 2/27 on the centroid and is 0 on every edge,
+    // which is what keeps neighbouring patches watertight. Subdividing a flat triangle displaced by
+    // that term alone is invisible, so the amplitude is scaled by the patch's own mean edge length:
+    // DispScale is a fraction of the triangle size, so the default 0.12 stays a subtle bulge instead
+    // of a fixed number of units that is invisible up close and a spike on a large wall.
+    const float w = 2.0f * bary.x * bary.y * bary.z;
+    const float edgeMean = ( length( p[1].viewPos - p[0].viewPos )
+                           + length( p[2].viewPos - p[1].viewPos )
+                           + length( p[0].viewPos - p[2].viewPos ) ) / 3.0f;
 
     o.normalVS = n;
-    o.viewPos  = v + n * ( w * DispScale );
-    o.pos      = mul( float4( o.viewPos, 1.0 ), Proj );
+    o.viewPos  = v + n * ( w * DispScale * edgeMean );
+    o.pos      = mul( float4( o.viewPos, 1.0f ), Proj );
+
     return o;
 }

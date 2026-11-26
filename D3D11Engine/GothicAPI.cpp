@@ -2233,47 +2233,9 @@ void GothicAPI::DrawMeshInfo( zCMaterial* mat, MeshInfo* msh ) {
             RendererState.GraphicsState.FF_GSwitches &= ~GSWITCH_ALPHAREF;
     }
 
-    // Tessellation of world meshes (docs/tessellation.md). Off unless [Display] Tessellation is
-    // set, and only for indexed triangle geometry - that is what a 3-control-point patch needs.
-    const int tessFactor = RendererState.RendererSettings.Tessellation;
-    // Indexed or not: a 3-control-point patch draw works with either, as long as the primitive
-    // count divides by three. Requiring an index buffer silently skipped Gothic's static meshes.
-    const bool tessGeom = msh->MeshIndexBuffer
-        ? ( msh->Indices.size() >= 3 && msh->Indices.size() % 3 == 0 )
-        : ( msh->Vertices.size() >= 3 && msh->Vertices.size() % 3 == 0 );
-    if ( tessFactor > 0 && tessGeom ) {
-        D3D11GraphicsEngine* g = AsD3D11Engine( Engine::GraphicsEngine );
-        if ( auto hd = g->GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
-            static bool tessLogged = false;
-            if ( !tessLogged ) {
-                tessLogged = true;
-                Logging::Inf( "Tessellation: displacing world meshes (factor {}, scale {}, {} verts, indexed {})",
-                    tessFactor, RendererState.RendererSettings.TessellationDisplacement,
-                    msh->Vertices.size(), msh->MeshIndexBuffer ? "yes" : "no" );
-            }
-            struct TessParams {
-                XMFLOAT4X4 Proj;
-                float Factor;
-                float Disp;
-                float Pad0;
-                float Pad1;
-            } tp = {};
-            tp.Proj = GetProjectionMatrix();
-            tp.Factor = static_cast<float>(tessFactor);
-            tp.Disp = RendererState.RendererSettings.TessellationDisplacement;
-
-            hd->Apply();
-            hd->UpdateBuffer( "TessParams", &tp, sizeof( tp ) );
-            g->GetContext()->IASetPrimitiveTopology( D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST );
-            if ( msh->MeshIndexBuffer )
-                g->DrawVertexBufferIndexed( msh->GetMeshVertexBuffer(), msh->GetMeshIndexBuffer(), msh->Indices.size() );
-            else
-                g->DrawVertexBuffer( msh->GetMeshVertexBuffer(), msh->Vertices.size() );
-            D3D11HDShader::Unbind();
-            g->GetContext()->IASetPrimitiveTopology( D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
-            return;
-        }
-    }
+    // No tessellation here: the visible world is drawn by D3D11GraphicsEngine::DrawWorldMesh
+    // (Forward+ static meshes), which has zero calls into this function. The patch draw lives there
+    // now - a branch here was measured never to run in a world frame (docs/tessellation.md).
 
     if ( !msh->MeshIndexBuffer ) {
         Engine::GraphicsEngine->DrawVertexBuffer( msh->GetMeshVertexBuffer(), msh->Vertices.size() );

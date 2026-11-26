@@ -5359,6 +5359,54 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
     MeshInfo* meshInfo = Engine::GAPI->GetWrappedWorldMesh();
     BindWrappedWorldMeshPacked( meshInfo );
 
+    // --- Tessellation of the static world (docs/tessellation.md) ---
+    // The visible world passes through this function, not through GothicAPI::DrawMeshInfo, so the
+    // patch draw has to live here. The depth prepass and the colour pass both go through it: a
+    // prepass that kept the undisplaced surface would reject the displaced fragments of the
+    // Forward+ lit pass (GREATER_EQUAL against the prepass depth) and punch holes in the picture,
+    // which is why tessellation also turns the prepass' position-only shortcut off below.
+    const int tessFactor = Engine::GAPI->GetRendererState().RendererSettings.Tessellation;
+    const float tessDisp = Engine::GAPI->GetRendererState().RendererSettings.TessellationDisplacement;
+    bool tessActive = false;
+    size_t tessRanges = 0;
+    if ( tessFactor > 0 && !FeatureLevel10Compatibility ) {
+        if ( auto hd = GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
+            struct WorldTessParams {
+                XMFLOAT4X4 Proj;
+                float Factor;
+                float Disp;
+                float Pad0;
+                float Pad1;
+            } tp = {};
+            tp.Proj = Engine::GAPI->GetProjectionMatrix();
+            tp.Factor = static_cast<float>( std::clamp( tessFactor, 1, 64 ) );
+            tp.Disp = tessDisp;
+
+            // Both stages read b0; D3D11HDShader::UpdateBuffer only binds the domain stage.
+            const ConstantBufferAllocation alloc = GetConstantBufferPool()->Allocate( &tp, sizeof( tp ) );
+            hd->Apply();
+            GetConstantBufferPool()->BindHS( 0, alloc );
+            GetConstantBufferPool()->BindDS( 0, alloc );
+            tessActive = true;
+        }
+    }
+
+    // Draws one range either as a plain triangle list or as 3-control-point patches. The topology is
+    // restored per range because everything after this function's loops (vegetation, quad marks, the
+    // water and VOB passes) draws triangles.
+    const auto drawWorldRange = [this, tessActive, &tessRanges]( const MeshDrawRange& range ) {
+        const unsigned int offset = range.Mesh->BaseIndexLocation + range.IndexOffset;
+        if ( tessActive && range.IndexCount % 3 == 0 ) {
+            D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST );
+            Context->DrawIndexed( range.IndexCount, offset, 0 );
+            Engine::GAPI->GetRendererState().RendererInfo.FrameDrawnTriangles += range.IndexCount / 3;
+            D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+            ++tessRanges;
+            return;
+        }
+        DrawVertexBufferIndexedUINT( nullptr, nullptr, range.IndexCount, offset );
+    };
+
     // Water/portal/waterfall/alpha-blended meshes are peeled off into their own systems (whole
     // WorldMeshInfo*, not a sub-range) - see handledWholeMeshes below.
     struct WorldMeshDrawEntry {
@@ -5496,7 +5544,9 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
         // Opaque geometry is depth-only (null PS) and needs only Position, so feed the slim
         // 12-byte position-only stream + position-only VS. Alpha-tested geometry still needs
         // TexCoord and is drawn below from the full 44-byte stream with VS_Ex.
-        const bool usePositionStream = meshInfo->MeshPositionBuffer != nullptr;
+        // Tessellated ranges need the normal for the PN displacement, which the position stream does
+        // not carry, so tessellation keeps the packed stream bound for the whole prepass.
+        const bool usePositionStream = meshInfo->MeshPositionBuffer != nullptr && !tessActive;
         UINT vbOffset = 0;
         if ( usePositionStream ) {
             SetActiveVertexShader( VShaderID::VS_ExDepth );
@@ -5509,8 +5559,7 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
             if ( mesh.Range.Key.Texture == nullptr ) continue;
             if ( isSkipped( mesh ) || isAlphaMesh( mesh ) ) continue;
 
-            DrawVertexBufferIndexedUINT( nullptr, nullptr, mesh.Range.IndexCount,
-                mesh.Range.Mesh->BaseIndexLocation + mesh.Range.IndexOffset );
+            drawWorldRange( mesh.Range );
         }
 
         // Alpha-tested geometry: restore the packed full stream + VS_ExPacked (also restores state
@@ -5548,6 +5597,10 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
         }
         BindMaterialFx( nullptr );
         if ( isZPrepass ) {
+            if ( tessActive ) {
+                D3D11HDShader::Unbind();
+                D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+            }
             return XR_SUCCESS;
         }
     }
@@ -5633,13 +5686,28 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
                 bound = tex;
             }
 
-            if ( Engine::GAPI->GetRendererState().RendererSettings.DrawWorldMesh > 2 ) {
+            // Tessellation draws the range even at a debug draw-level that would skip plain
+            // submission: seeing the displaced surface is the whole point of the setting.
+            if ( tessActive || Engine::GAPI->GetRendererState().RendererSettings.DrawWorldMesh > 2 ) {
                 BindMaterialFx( mesh.Range.Key.Material );
-                DrawVertexBufferIndexedUINT( nullptr, nullptr, mesh.Range.IndexCount,
-                    mesh.Range.Mesh->BaseIndexLocation + mesh.Range.IndexOffset );
+                drawWorldRange( mesh.Range );
             }
         }
         BindMaterialFx( nullptr );
+    }
+
+    if ( tessActive ) {
+        D3D11HDShader::Unbind();
+        D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+        // Once per run, and only from the colour pass: a run either tessellated the world through
+        // this path or it did not. This is the line docs/tessellation.md asks to see, because a
+        // frame alone cannot tell a world draw here from the overlay's menu frame.
+        static bool tessLogged = false;
+        if ( !tessLogged && tessRanges > 0 ) {
+            tessLogged = true;
+            Logging::Inf( "Tessellation: displacing world meshes (factor {}, scale {}, {} ranges as 3-control-point patches)",
+                tessFactor, tessDisp, tessRanges );
+        }
     }
 
     DrawVegetationGeometryPass(Engine::GAPI->GetVegetationBoxes());
