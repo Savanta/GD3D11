@@ -101,14 +101,28 @@ non-integrable noise that plain integration turns into spikes), or from a diffus
 data does not: a height set baked from another pack's textures is a derivative work
 (`docs/heightmaps.md`).
 
+**Measured limit (26.11.2026): in this mod the relief channel never fires.** With
+`[General] EnableDebugLog=1` the probe line above shows that only **10** textures ever reach
+`MyDirectDrawSurface7::LoadAdditionalResources` in a whole session, and all ten are menu/UI
+(`STARTSCREEN`, `FONT_*`, `PROGRESS*`, ...). No world texture is probed, so no world material can
+carry a `_NORMAL.DDS` or a `_HEIGHT.DDS` - a file dropped into `Heightmaps_<gameName>` stays unused
+(verified by placing one for a probed water texture and restarting). Consequence: modes 1 and 2 are
+dead in practice here and the visible displacement is the PN bump alone. Feeding the relief from the
+material's own texture, or finding why world textures bypass the probe, is the next real step -
+`docs/heightmaps.md`'s whole premise rests on it.
+
 ## Next step
 
-- Distance-adaptive factors from `AdaptiveTesselation.h`, so the factor falls off with distance instead
-  of multiplying the triangle count everywhere.
+- **Get the relief channel to see world textures.** Everything else here is measurable; this is the one
+  that decides whether `docs/heightmaps.md` is worth anything: today the additional-map probe only ever
+  sees menu/UI textures, so no world material can carry a normal or height companion.
+- Back-face culling from `AdaptiveTesselation.h` (`BackFaceCull`), which needs the view-space
+  handedness confirmed on screen first - a wrong sign culls the whole world.
 - Shadows (`ShadowPass_DrawWorldMesh`) still draw the undisplaced world.
 - Per-material strength: `MaterialInfo::Buffer::DisplacementFactor` already exists and persists, but the
-  domain stage reads one global amplitude today - plumbing it into the patch cbuffer is the next step
-  after the texture relief below.
+  domain stage reads one global amplitude today.
+- PN-AEN silhouettes via the vendored `meshopt_generateTessellationIndexBuffer()` (needs an adjacency
+  index buffer built with the wrapped world mesh, and a 4-control-point hull).
 
 ## How to tell whether it works
 
