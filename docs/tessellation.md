@@ -12,10 +12,18 @@ was traced through the code and the conclusion is not obvious from any single fi
 - `Shaders/PNAEN_Tesselation.hlsl`, `Shaders/domain_PNAEN.hlsl` - a PN-triangle hull/domain pair
   for a **3-control-point** patch, so no adjacency index buffer is required: the existing triangle
   index buffer can be drawn as `D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST`.
-- `TesselationFactor` / `TesselationRange` in `GothicGraphicsState.h` (20.0 / 8.0), exposed only
-  through AntTweakBar under `General/`.
-- `GothicAPI.h`: `std::string TesselationShaderPair` per material, and `D2DEditorView.cpp` sets it
-  to `"PNAEN_Tesselation"` when the mesh editor smooths a mesh with SPACE.
+That is the whole list for **this** tree: `grep -rin tessel` over `D3D11Engine` (excluding vendor
+code) returns those utilities, one comment about the ocean, and third-party headers. Nothing else.
+
+## Where the rest of the scaffolding lives
+
+`TesselationFactor` / `TesselationRange` (20.0 / 8.0, exposed through AntTweakBar under `General/`)
+and the per-material `std::string TesselationShaderPair`, set by `D2DEditorView.cpp` when the mesh
+editor smooths a mesh with SPACE, are in **SaiyansKing's tree**, not in this one. They were traced
+there while looking for what a port would bring.
+
+So in this fork tessellation is two shader files and a set of utilities, referenced by nothing - it
+is even less wired than the other tree, where at least an editor path writes the field.
 
 ## What is missing
 
