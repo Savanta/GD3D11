@@ -5397,6 +5397,9 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
             hd->Apply();
             GetConstantBufferPool()->BindHS( 0, alloc );
             GetConstantBufferPool()->BindDS( 0, alloc );
+            // TX_Relief samples through s0; the pixel stage's sampler lives in its own stage.
+            ID3D11SamplerState* linear = GetLinearSamplerState();
+            GetContext()->DSSetSamplers( 0, 1, &linear );
             tessActive = true;
         }
     }
@@ -5404,9 +5407,28 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
     // Draws one range either as a plain triangle list or as 3-control-point patches. The topology is
     // restored per range because everything after this function's loops (vegetation, quad marks, the
     // water and VOB passes) draws triangles.
-    const auto drawWorldRange = [this, tessActive, &tessRanges]( const MeshDrawRange& range ) {
+    //
+    // The domain stage samples the material's normal map to displace along the texture grain, so the
+    // SRV rides the patch draw: per material, not per pass. A material without a normal map gets the
+    // white texture, which decodes to a flat normal and therefore to zero relief - no flag needed.
+    ID3D11ShaderResourceView* boundRelief = nullptr;
+    const auto drawWorldRange = [this, tessActive, &tessRanges, &boundRelief]( const MeshDrawRange& range ) {
         const unsigned int offset = range.Mesh->BaseIndexLocation + range.IndexOffset;
         if ( tessActive && range.IndexCount % 3 == 0 ) {
+            ID3D11ShaderResourceView* relief = nullptr;
+            if ( range.Key.Texture ) {
+                if ( MyDirectDrawSurface7* surface = range.Key.Texture->GetSurface() ) {
+                    relief = GetSrvFromGfx( surface->GetNormalmap() );
+                }
+            }
+            if ( !relief ) {
+                relief = GetWhiteTexture()->GetShaderResourceView().Get();
+            }
+            if ( relief != boundRelief ) {
+                GetContext()->DSSetShaderResources( 0, 1, &relief );
+                boundRelief = relief;
+            }
+
             D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST );
             Context->DrawIndexed( range.IndexCount, offset, 0 );
             Engine::GAPI->GetRendererState().RendererInfo.FrameDrawnTriangles += range.IndexCount / 3;
@@ -5605,6 +5627,8 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
         if ( isZPrepass ) {
             if ( tessActive ) {
                 D3D11HDShader::Unbind();
+                ID3D11ShaderResourceView* nullRelief = nullptr;
+                GetContext()->DSSetShaderResources( 0, 1, &nullRelief );
                 D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
             }
             return XR_SUCCESS;
@@ -5704,6 +5728,10 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
 
     if ( tessActive ) {
         D3D11HDShader::Unbind();
+        ID3D11ShaderResourceView* nullRelief = nullptr;
+        GetContext()->DSSetShaderResources( 0, 1, &nullRelief );
+        ID3D11SamplerState* nullSampler = nullptr;
+        GetContext()->DSSetSamplers( 0, 1, &nullSampler );
         D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
         // Once per run, and only from the colour pass: a run either tessellated the world through
         // this path or it did not. This is the line docs/tessellation.md asks to see, because a

@@ -19,6 +19,13 @@ cbuffer TessParams : register( b0 )
     float2 TessPad;
 };
 
+// Material normal map, bound to the domain stage by the world draw. Sampling it per domain vertex
+// is what makes the displaced surface follow the texture (brick rows, rock grain) instead of only
+// the barycentric bump. A material without a normal map gets the engine's white texture, which
+// decodes to a flat normal and therefore to exactly zero relief.
+Texture2D    TX_Relief : register( t0 );
+SamplerState SS_Linear : register( s0 );
+
 struct VS_OUT
 {
     float2 uv       : TEXCOORD0;
@@ -88,8 +95,14 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
                            + length( p[2].viewPos - p[1].viewPos )
                            + length( p[0].viewPos - p[2].viewPos ) ) / 3.0f;
 
+    // Texture relief: the normal map's tangent-space slope stands in for a height field, so the
+    // surface follows the grain of the texture. 1 - n.z is 0 for a flat texel and grows where the
+    // map tilts the surface; the half weight keeps it a detail term under the silhouette bump.
+    const float3 nTile = TX_Relief.SampleLevel( SS_Linear, o.uv, 0 ).xyz * 2.0f - 1.0f;
+    const float relief = saturate( 1.0f - nTile.z ) * 0.5f;
+
     o.normalVS = n;
-    o.viewPos  = v + n * ( w * DispScale * edgeMean );
+    o.viewPos  = v + n * ( ( w + relief ) * DispScale * edgeMean );
     o.pos      = mul( float4( o.viewPos, 1.0f ), Proj );
 
     return o;

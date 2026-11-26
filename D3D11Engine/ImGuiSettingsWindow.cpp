@@ -819,8 +819,10 @@ void RenderWorldTab( GothicRendererSettings& settings ) {
         "Off costs nothing: the world is drawn as plain triangles." );
     SliderFloatRow( "Displacement", "##TessellationDisplacement", &settings.TessellationDisplacement,
         0.0f, 20.0f, "%.2f",
-        "How far the patch centre is pushed along its normal, as a fraction of the triangle's mean\n"
-        "edge length. 0 = subdivide only, which is invisible; ~12 and above is absurd on purpose." );
+        "How far the surface is pushed along its normal, as a fraction of the triangle's mean edge\n"
+        "length. The bump is the patch's own deviation plus relief sampled from the material's normal\n"
+        "map, so the displaced surface follows the texture grain.\n"
+        "0 = subdivide only, which is invisible; ~12 and above is absurd on purpose." );
 
 #ifdef BUILD_GOTHIC_1_08k
     CheckRow( "Forest Portals", &settings.DrawG1ForestPortals,

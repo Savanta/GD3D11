@@ -74,10 +74,29 @@ effect is live there; they persist as `[Display] Tessellation` / `TessellationDi
   is zero on every edge (that is what keeps patches watertight), so subdivision alone is invisible
   and a fixed unit scale reads as "the feature does nothing".
 
+## Texture relief (26.11.2026)
+
+The domain stage samples the material's **normal map** (`TX_Relief`, t0, with the engine's linear
+sampler) per domain vertex and uses the map's tangent-space slope (`1 - n.z`) as a height proxy, so
+the displaced surface follows the brick rows and rock grain instead of only the barycentric bump. A
+material without a normal map gets the engine's white texture, which decodes to a flat normal and
+therefore to exactly zero relief - no flag in the constant buffer and no branch in the draw.
+
+The SRV is bound per patch draw, not per pass, because it changes with the material; the draw caches
+the last bound view so a run of ranges sharing a texture costs one `DSSetShaderResources`.
+
+That is the cheap end of the idea in `docs/heightmaps.md`: a real height channel (`_HEIGHT.DDS`
+companions under `Heightmaps_<gameName>`) gives displacement that is not a slope proxy, and the
+offline bake described there is what would make it physical rather than decorative.
+
 ## Next step
 
-- Distance-adaptive factors from `AdaptiveTesselation.h`, and sampling the material's normal map in
-  the domain shader so the displacement follows the texture instead of a barycentric bump.
+- Distance-adaptive factors from `AdaptiveTesselation.h`, so the factor falls off with distance instead
+  of multiplying the triangle count everywhere.
+- Shadows (`ShadowPass_DrawWorldMesh`) still draw the undisplaced world.
+- Per-material strength: `MaterialInfo::Buffer::DisplacementFactor` already exists and persists, but the
+  domain stage reads one global amplitude today - plumbing it into the patch cbuffer is the next step
+  after the texture relief below.
 
 ## How to tell whether it works
 
