@@ -415,8 +415,19 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
     }
 
     if ( normalPath.empty() && materialPath.empty() && heightPath.empty() ) {
+        // A height set has to be named after the texture the renderer asks for, and nowhere else is
+        // that name visible - so trace the first few probes even when nothing was found, plus every
+        // actual height hit. Debug log only, capped so a world load does not flood the file.
+        static std::atomic<int> sProbesLogged{ 0 };
+        if ( Engine::GAPI->GetRendererState().RendererSettings.EnableDebugLog
+            && sProbesLogged.fetch_add( 1 ) < 40 ) {
+            Logging::Inf( "Additional maps for '{}': none", TextureName );
+        }
         return; // No replacements for this texture — nothing to hand off.
     }
+
+    Logging::Inf( "Additional maps for '{}': normal '{}', material '{}', height '{}'",
+        TextureName, normalPath, materialPath, heightPath );
 
     // --- Claim the shared cache entries ---
     // Refcounting happens here, on the calling thread, so the entries can't be destroyed underneath a
