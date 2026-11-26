@@ -167,6 +167,52 @@ def write_dds_r8(path, pixels_u8, w, h):
         f.write(bytes(pixels_u8))
 
 
+def write_dds_rgba(path, pixels_u8, w, h):
+    """Four-channel DDS with a DX10 header (DXGI_FORMAT_R8G8B8A8_UNORM).
+
+    Normal maps go out uncompressed on purpose: the renderer decodes a tangent-space normal as
+    `.xyz * 2 - 1`, which is exactly what an uncompressed X/Y/Z-coded map gives. A BC5/BC3 (DXT5nm)
+    map stores X in alpha and would decode to garbage through that path.
+    """
+    DDSD_CAPS, DDSD_HEIGHT, DDSD_WIDTH, DDSD_PITCH, DDSD_PIXELFORMAT = 0x1, 0x2, 0x4, 0x8, 0x1000
+    DDPF_FOURCC = 0x4
+    flags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT
+    header = struct.pack("<7I44x", 124, flags, h, w, w * 4, 0, 0)
+    pf = struct.pack("<2I4s20x", 32, DDPF_FOURCC, b"DX10")
+    caps = struct.pack("<4I4x", 0x1000, 0, 0, 0)
+    dx10 = struct.pack("<5I", 28, 3, 0, 1, 0)      # R8G8B8A8_UNORM, TEXTURE2D
+    with open(path, "wb") as f:
+        f.write(b"DDS " + header + pf + caps + dx10)
+        f.write(bytes(pixels_u8))
+
+
+def height_to_normals(height, scale, wrap=True):
+    """Central differences of a single-channel height field -> tangent-space normals.
+
+    y points down in image space, so the green channel is flipped once here; that is the DirectX
+    convention the renderer's normal maps use.
+    """
+    w, h = height.size
+    px = height.load()
+    out = bytearray(w * h * 4)
+    for y in range(h):
+        ym = (y - 1) % h if wrap else max(y - 1, 0)
+        yp = (y + 1) % h if wrap else min(y + 1, h - 1)
+        for x in range(w):
+            xm = (x - 1) % w if wrap else max(x - 1, 0)
+            xp = (x + 1) % w if wrap else min(x + 1, w - 1)
+            dx = (px[xp, y] - px[xm, y]) / 255.0 * scale
+            dy = (px[x, yp] - px[x, ym]) / 255.0 * scale
+            nx, ny, nz = -dx, dy, 1.0
+            inv = 1.0 / math.sqrt(nx * nx + ny * ny + nz * nz)
+            i = (y * w + x) * 4
+            out[i + 0] = max(0, min(255, int(round((nx * inv * 0.5 + 0.5) * 255))))
+            out[i + 1] = max(0, min(255, int(round((ny * inv * 0.5 + 0.5) * 255))))
+            out[i + 2] = max(0, min(255, int(round((nz * inv * 0.5 + 0.5) * 255))))
+            out[i + 3] = 255
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description="Bake a _HEIGHT.DDS for the tessellated world.")
     ap.add_argument("source", help="normal map (default) or diffuse map with --from-diffuse")
@@ -177,6 +223,10 @@ def main():
     ap.add_argument("--strength", type=float, default=1.0, help="scale of the height after normalisation")
     ap.add_argument("--flip-green", action="store_true",
                     help="invert the normal map's green channel (OpenGL-style maps)")
+    ap.add_argument("--normals", metavar="PATH",
+                    help="also write a tangent-space normal map (R8G8B8A8 DDS) derived from the height")
+    ap.add_argument("--normal-scale", type=float, default=2.0,
+                    help="slope gain of the generated normal map")
     args = ap.parse_args()
 
     src = load_gray(args.source)
@@ -209,6 +259,14 @@ def main():
         out[i] = max(0, min(255, int(round((0.5 + (v - 0.5) * args.strength) * 255.0))))
     write_dds_r8(args.output, out, w, h)
     print("zapisano:", args.output, "%dx%d R8_UNORM (%d B)" % (w, h, len(out)))
+
+    if args.normals:
+        # One height drives both: the displacement the domain stage applies and the shading detail a
+        # normal map would add. Generating the normals from the same field is what keeps them agreei ng.
+        height_img = Image.frombytes("L", (w, h), bytes(out))
+        normals = height_to_normals(height_img, args.normal_scale)
+        write_dds_rgba(args.normals, normals, w, h)
+        print("zapisano:", args.normals, "%dx%d R8G8B8A8 normals (%d B)" % (w, h, len(normals)))
 
 
 if __name__ == "__main__":
