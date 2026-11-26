@@ -101,6 +101,9 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
         s.WindQuality = GothicRendererSettings::EWindQuality::WIND_QUALITY_NONE;
         s.HeroAffectsObjects = 0;
 
+        // No budget for subdivision on these two: the world draws as plain triangles.
+        s.Tessellation = 0;
+
         s.EnableGodRays = false;
     }
     break;
@@ -129,6 +132,11 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
 
         s.WindQuality = GothicRendererSettings::EWindQuality::WIND_QUALITY_NONE;
         s.HeroAffectsObjects = 1;
+
+        // Tessellation of the static world: coarse target, so the cost stays where the detail is.
+        s.Tessellation = 4;
+        s.TessellationTargetPixels = 12;
+        s.TessellationDisplacement = 0.2f;
 
         s.EnableGodRays = true;
     }
@@ -159,6 +167,10 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
         s.WindQuality = GothicRendererSettings::EWindQuality::WIND_QUALITY_ADVANCED;
         s.HeroAffectsObjects = 1;
 
+        s.Tessellation = 8;
+        s.TessellationTargetPixels = 8;
+        s.TessellationDisplacement = 0.3f;
+
         s.EnableGodRays = true;
     }
     break;
@@ -187,6 +199,10 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
 
         s.WindQuality = GothicRendererSettings::EWindQuality::WIND_QUALITY_ADVANCED;
         s.HeroAffectsObjects = 1;
+
+        s.Tessellation = 12;
+        s.TessellationTargetPixels = 6;
+        s.TessellationDisplacement = 0.4f;
 
         s.EnableGodRays = true;
     }
