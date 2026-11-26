@@ -115,6 +115,7 @@ MyDirectDrawSurface7::MyDirectDrawSurface7() {
     EngineTexture = nullptr;
     Normalmap = nullptr;
     FxMap = nullptr;
+    Heightmap = nullptr;
     LockedData = nullptr;
     GothicTexture = nullptr;
     IsReady = false;
@@ -168,8 +169,10 @@ MyDirectDrawSurface7::~MyDirectDrawSurface7() {
     // only deletes them if no other surface still uses the same replacement file.
     Normalmap.store( nullptr, std::memory_order_release );
     FxMap.store( nullptr, std::memory_order_release );
+    Heightmap.store( nullptr, std::memory_order_release );
     NormalmapRef.reset();
     FxMapRef.reset();
+    HeightmapRef.reset();
 }
 
 /** Returns the engine texture of this surface */
@@ -185,6 +188,12 @@ GfxTexture* MyDirectDrawSurface7::GetNormalmap() {
 /** Returns the fx-map for this surface. Null until the async load publishes it. */
 GfxTexture* MyDirectDrawSurface7::GetFxMap() {
     return FxMap.load( std::memory_order_acquire );
+}
+
+/** Returns the heightmap of this surface. Null until the async load publishes it, and for every
+    texture that ships no _HEIGHT.DDS companion. */
+GfxTexture* MyDirectDrawSurface7::GetHeightmap() {
+    return Heightmap.load( std::memory_order_acquire );
 }
 
 /** Binds this texture */
@@ -225,7 +234,8 @@ namespace {
     /** Probes both replacement roots for '<textureName><suffix>' and returns the path that exists, or
         an empty string. Existence-only: no open, no read, no decode — cheap enough to keep on the game
         thread, which is what lets the caller decide up front whether a worker job is needed at all. */
-    std::string ResolveResourcePath( const std::string& textureName, const char* suffix, const std::string& gameName ) {
+    std::string ResolveResourcePath( const std::string& textureName, const char* suffix, const std::string& gameName,
+                                    const char* rootPrefix = "Normalmaps_" ) {
         std::string candidate;
         candidate.reserve( 255 );
 
@@ -235,7 +245,7 @@ namespace {
         }
 
         candidate.clear();
-        candidate.append( systemWorkPath ).append( "Normalmaps_" ).append( gameName ).append( "\\" )
+        candidate.append( systemWorkPath ).append( rootPrefix ).append( gameName ).append( "\\" )
                  .append( textureName ).append( suffix );
         if ( auto file = zFILE_VDFS::Create( candidate ); file && file->Exists() ) {
             return candidate;
@@ -291,8 +301,10 @@ void MyDirectDrawSurface7::ReleaseAllEngineTextures() {
         surface->EngineTexture = nullptr;
         surface->Normalmap.store( nullptr, std::memory_order_release );
         surface->FxMap.store( nullptr, std::memory_order_release );
+        surface->Heightmap.store( nullptr, std::memory_order_release );
         surface->NormalmapRef.reset();
         surface->FxMapRef.reset();
+        surface->HeightmapRef.reset();
     }
     Logging::Inf( "Released the engine textures of {} live DirectDraw surfaces", s_LiveSurfaces.size() );
 }
@@ -346,9 +358,11 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
 
     Normalmap.store( nullptr, std::memory_order_release );
     FxMap.store( nullptr, std::memory_order_release );
+    Heightmap.store( nullptr, std::memory_order_release );
     AvailableMaterials.store( EAdditionalMaterial::None, std::memory_order_release );
     NormalmapRef.reset();
     FxMapRef.reset();
+    HeightmapRef.reset();
 
     AdditionalResourcesResolved = true;
 
@@ -368,6 +382,9 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
     const std::string& gameName = Engine::GAPI->GetGameName();
 
     const std::string normalPath = ResolveResourcePath( TextureName, "_NORMAL.DDS", gameName );
+    // Real displacement height for the tessellation domain stage. Same probing, its own root, so a
+    // height set can be dropped in without touching the normal maps (docs/heightmaps.md).
+    const std::string heightPath = ResolveResourcePath( TextureName, "_HEIGHT.DDS", gameName, "Heightmaps_" );
 
     std::string materialPath;
     const char* materialSuffix = "";
@@ -397,7 +414,7 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
         }
     }
 
-    if ( normalPath.empty() && materialPath.empty() ) {
+    if ( normalPath.empty() && materialPath.empty() && heightPath.empty() ) {
         return; // No replacements for this texture — nothing to hand off.
     }
 
@@ -407,12 +424,15 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
     // needed at all.
     NormalmapRef = normalPath.empty() ? nullptr : AcquireAdditionalTexture( normalPath );
     FxMapRef = materialPath.empty() ? nullptr : AcquireAdditionalTexture( materialPath );
+    HeightmapRef = heightPath.empty() ? nullptr : AcquireAdditionalTexture( heightPath );
 
     // Another surface already loaded these files (or this texture was cached back in while another
     // surface still held them). Publish straight away — no file IO, no upload, no job.
-    if ( IsAdditionalTextureResolved( NormalmapRef ) && IsAdditionalTextureResolved( FxMapRef ) ) {
+    if ( IsAdditionalTextureResolved( NormalmapRef ) && IsAdditionalTextureResolved( FxMapRef )
+        && IsAdditionalTextureResolved( HeightmapRef ) ) {
         GfxTexture* fx = PeekAdditionalTexture( FxMapRef );
         Normalmap.store( PeekAdditionalTexture( NormalmapRef ), std::memory_order_release );
+        Heightmap.store( PeekAdditionalTexture( HeightmapRef ), std::memory_order_release );
         AvailableMaterials.store( fx ? materialType : EAdditionalMaterial::None, std::memory_order_release );
         FxMap.store( fx, std::memory_order_release );
         return;
@@ -426,14 +446,16 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
         std::vector<uint8_t> storage;
         GfxTexture* nrm = NormalmapRef ? NormalmapRef->EnsureLoaded( TextureName + "_NORMAL.DDS", storage ) : nullptr;
         GfxTexture* fx = FxMapRef ? FxMapRef->EnsureLoaded( TextureName + materialSuffix, storage ) : nullptr;
+        GfxTexture* hgt = HeightmapRef ? HeightmapRef->EnsureLoaded( TextureName + "_HEIGHT.DDS", storage ) : nullptr;
         Normalmap.store( nrm, std::memory_order_release );
+        Heightmap.store( hgt, std::memory_order_release );
         AvailableMaterials.store( fx ? materialType : EAdditionalMaterial::None, std::memory_order_release );
         FxMap.store( fx, std::memory_order_release );
         return;
     }
 
     auto task = Engine::WorkerThreadPool->enqueue(
-        [this, nrmRef = NormalmapRef, fxRef = FxMapRef, materialType, materialSuffix, name = TextureName]( const std::stop_token& token ) {
+        [this, nrmRef = NormalmapRef, fxRef = FxMapRef, hgtRef = HeightmapRef, materialType, materialSuffix, name = TextureName]( const std::stop_token& token ) {
             if ( token.stop_requested() ) {
                 // Cancelled before a worker picked it up (world change / pool flush). Leave the maps
                 // null; the surface renders diffuse-only until the texture is cached in again.
@@ -446,11 +468,13 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
             // worker that wants the same file waits here instead of decoding it a second time.
             GfxTexture* nrm = nrmRef ? nrmRef->EnsureLoaded( name + "_NORMAL.DDS", storage ) : nullptr;
             GfxTexture* fx = fxRef ? fxRef->EnsureLoaded( name + materialSuffix, storage ) : nullptr;
+            GfxTexture* hgt = hgtRef ? hgtRef->EnsureLoaded( name + "_HEIGHT.DDS", storage ) : nullptr;
 
             // Publish. AvailableMaterials must be visible before FxMap, because every reader gates on
             // GetFxMap() being non-null and then trusts GetAvailableMaterials() to say what its
             // channels mean — the reverse order could decode an ORM map as a roughness-only one.
             Normalmap.store( nrm, std::memory_order_release );
+            Heightmap.store( hgt, std::memory_order_release );
             AvailableMaterials.store( fx ? materialType : EAdditionalMaterial::None, std::memory_order_release );
             FxMap.store( fx, std::memory_order_release );
         } );

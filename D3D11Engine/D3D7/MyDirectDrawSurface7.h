@@ -105,6 +105,11 @@ public:
     /** Returns the fx-map for this surface */
     GfxTexture* GetFxMap();
 
+    /** Returns the heightmap of this surface ('<tex>_HEIGHT.DDS' under Heightmaps_<game>).
+        Used by the tessellation domain stage as real displacement height. Null until the async
+        load publishes it, and for every texture that ships no height companion. */
+    GfxTexture* GetHeightmap();
+
     /** Loads additional resources if possible.
         Probing for which replacement files exist happens synchronously; the actual read + decode +
         GPU upload is handed to a worker thread, because doing it inline cost up to 20ms on the game
@@ -175,12 +180,14 @@ private:
         borrowed views into the cache entries below, which own the textures. */
     std::atomic<GfxTexture*> Normalmap;
     std::atomic<GfxTexture*> FxMap;
+    std::atomic<GfxTexture*> Heightmap;
 
     /** Keeps this surface's share of the cached replacement textures alive. Only ever touched by the
         thread that calls LoadAdditionalResources (and by the destructor, after joining the loader),
         never by the render thread — that one reads the atomics above. */
     std::shared_ptr<SharedAdditionalTexture> NormalmapRef;
     std::shared_ptr<SharedAdditionalTexture> FxMapRef;
+    std::shared_ptr<SharedAdditionalTexture> HeightmapRef;
 
     /** True once the replacement files for GothicTexture have been probed for. Guards against the
         mip-chain storm: Gothic unlocks every mip level of a texture, and each one forwards to

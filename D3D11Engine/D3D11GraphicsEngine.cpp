@@ -5379,17 +5379,18 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
     const float tessDisp = Engine::GAPI->GetRendererState().RendererSettings.TessellationDisplacement;
     bool tessActive = false;
     size_t tessRanges = 0;
+    struct WorldTessParams {
+        XMFLOAT4X4 Proj;
+        float Factor;
+        float Disp;
+        XMFLOAT2 ScreenSize;
+        float TargetPixels;
+        float MinFactor;
+        float ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map
+        float Pad;
+    } tp = {};
     if ( tessFactor > 0 && !FeatureLevel10Compatibility ) {
         if ( auto hd = GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
-            struct WorldTessParams {
-                XMFLOAT4X4 Proj;
-                float Factor;
-                float Disp;
-                XMFLOAT2 ScreenSize;
-                float TargetPixels;
-                float MinFactor;
-                XMFLOAT2 Pad;
-            } tp = {};
             tp.Proj = Engine::GAPI->GetProjectionMatrix();
             tp.Factor = static_cast<float>( std::clamp( tessFactor, 1, 64 ) );
             tp.Disp = tessDisp;
@@ -5399,7 +5400,8 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
             tp.TargetPixels = static_cast<float>( std::clamp(
                 Engine::GAPI->GetRendererState().RendererSettings.TessellationTargetPixels, 1, 64 ) );
             tp.MinFactor = 1.0f;
-            static_assert( sizeof( tp ) == 96, "WorldTessParams must match TessParams in WorldTess.hlsl" );
+            tp.ReliefMode = 0.0f;   // the first material decides; the patch draw re-uploads on a change
+            static_assert( sizeof( WorldTessParams ) == 96, "WorldTessParams must match TessParams in WorldTess.hlsl" );
 
             // Both stages read b0; D3D11HDShader::UpdateBuffer only binds the domain stage.
             const ConstantBufferAllocation alloc = GetConstantBufferPool()->Allocate( &tp, sizeof( tp ) );
@@ -5421,13 +5423,21 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
     // SRV rides the patch draw: per material, not per pass. A material without a normal map gets the
     // white texture, which decodes to a flat normal and therefore to zero relief - no flag needed.
     ID3D11ShaderResourceView* boundRelief = nullptr;
-    const auto drawWorldRange = [this, tessActive, &tessRanges, &boundRelief]( const MeshDrawRange& range ) {
+    float boundReliefMode = -1.0f;
+    const auto drawWorldRange = [this, tessActive, &tessRanges, &boundRelief, &boundReliefMode, &tp]( const MeshDrawRange& range ) {
         const unsigned int offset = range.Mesh->BaseIndexLocation + range.IndexOffset;
         if ( tessActive && range.IndexCount % 3 == 0 ) {
+            // Height map first (real displacement), then the normal map (slope proxy), then white -
+            // which decodes to a flat normal and to zero relief, so no branch is needed in the shader.
             ID3D11ShaderResourceView* relief = nullptr;
+            float reliefMode = 0.0f;
             if ( range.Key.Texture ) {
                 if ( MyDirectDrawSurface7* surface = range.Key.Texture->GetSurface() ) {
-                    relief = GetSrvFromGfx( surface->GetNormalmap() );
+                    if ( ( relief = GetSrvFromGfx( surface->GetHeightmap() ) ) != nullptr ) {
+                        reliefMode = 2.0f;
+                    } else if ( ( relief = GetSrvFromGfx( surface->GetNormalmap() ) ) != nullptr ) {
+                        reliefMode = 1.0f;
+                    }
                 }
             }
             if ( !relief ) {
@@ -5436,6 +5446,15 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
             if ( relief != boundRelief ) {
                 GetContext()->DSSetShaderResources( 0, 1, &relief );
                 boundRelief = relief;
+            }
+            if ( reliefMode != boundReliefMode ) {
+                // Per material, not per frame: the mode rides the same small constant buffer, and the
+                // pool hashes the payload, so a run of ranges sharing a mode costs nothing.
+                WorldTessParams material = tp;
+                material.ReliefMode = reliefMode;
+                const ConstantBufferAllocation alloc = GetConstantBufferPool()->Allocate( &material, sizeof( material ) );
+                GetConstantBufferPool()->BindDS( 0, alloc );
+                boundReliefMode = reliefMode;
             }
 
             D3D11PipelineStateCache::SetPrimitiveTopology( GetContext().Get(), D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST );

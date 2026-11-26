@@ -78,18 +78,26 @@ effect is live there; they persist as `[Display] Tessellation` / `TessellationDi
 
 ## Texture relief (26.11.2026)
 
-The domain stage samples the material's **normal map** (`TX_Relief`, t0, with the engine's linear
-sampler) per domain vertex and uses the map's tangent-space slope (`1 - n.z`) as a height proxy, so
-the displaced surface follows the brick rows and rock grain instead of only the barycentric bump. A
-material without a normal map gets the engine's white texture, which decodes to a flat normal and
-therefore to exactly zero relief - no flag in the constant buffer and no branch in the draw.
+The domain stage displaces along a **relief texture** (`TX_Relief`, t0, with the engine's linear
+sampler), sampled per domain vertex, in one of three modes carried in the patch constant buffer:
 
-The SRV is bound per patch draw, not per pass, because it changes with the material; the draw caches
-the last bound view so a run of ranges sharing a texture costs one `DSSetShaderResources`.
+- **mode 2 - height map**: `'<texture>_HEIGHT.DDS'` under `Heightmaps_<gameName>`, found by the same
+  synchronous probe + async load + refcounted cache as the normal maps (`MyDirectDrawSurface7`).
+  0.5 is the neutral surface and the shader displaces by `(h - 0.5) * 2`, so a flat stretch of the
+  map moves nothing. This is real height.
+- **mode 1 - normal map slope**: for materials that ship only a normal map, `1 - n.z` (half weight)
+  is a *proxy*, not a height: it follows the texture grain but does not reconstruct shape.
+- **mode 0 - white texture**: decodes to a flat normal, exactly zero relief. No branch in the draw.
 
-That is the cheap end of the idea in `docs/heightmaps.md`: a real height channel (`_HEIGHT.DDS`
-companions under `Heightmaps_<gameName>`) gives displacement that is not a slope proxy, and the
-offline bake described there is what would make it physical rather than decorative.
+The SRV and the mode are per material, so both ride the patch draw; the constant buffer is
+re-uploaded only when the mode changes, and the pool hashes the payload.
+
+`tools/bake_heightmap.py` produces those height maps: from a tangent-space normal map it solves
+`lap(h) = div(slope)` (Poisson, SOR with mirror boundaries - the projection removes the
+non-integrable noise that plain integration turns into spikes), or from a diffuse with
+`--from-diffuse`. Output is a single-channel R8_UNORM DDS with a DX10 header. The tool ships, the
+data does not: a height set baked from another pack's textures is a derivative work
+(`docs/heightmaps.md`).
 
 ## Next step
 

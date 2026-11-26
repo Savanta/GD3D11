@@ -19,7 +19,8 @@ cbuffer TessParams : register( b0 )
     float2 ScreenSize;   // render target size in pixels, for the screen-space edge measurement
     float  TargetPixels; // one tessellated edge should be about this long on screen
     float  MinFactor;    // never go below this, so a small patch still gets a real patch
-    float2 TessPad;
+    float  ReliefMode;   // 0 = no relief, 1 = slope of the normal map, 2 = a real height map
+    float  TessPad;
 };
 
 #include "AdaptiveTesselation.h"
@@ -117,11 +118,19 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
                            + length( p[2].viewPos - p[1].viewPos )
                            + length( p[0].viewPos - p[2].viewPos ) ) / 3.0f;
 
-    // Texture relief: the normal map's tangent-space slope stands in for a height field, so the
-    // surface follows the grain of the texture. 1 - n.z is 0 for a flat texel and grows where the
-    // map tilts the surface; the half weight keeps it a detail term under the silhouette bump.
-    const float3 nTile = TX_Relief.SampleLevel( SS_Linear, o.uv, 0 ).xyz * 2.0f - 1.0f;
-    const float relief = saturate( 1.0f - nTile.z ) * 0.5f;
+    // Texture relief. Mode 2 is a real height map ('<tex>_HEIGHT.DDS'): 0 is the base surface and 1
+    // the peak, so the displacement is the height itself. Mode 1 is the fallback for materials that
+    // only ship a normal map: its tangent-space slope (1 - n.z, 0 on a flat texel, half weight) is a
+    // proxy, not a height. Mode 0 means the white texture is bound and nothing is displaced.
+    float relief = 0.0f;
+    if ( ReliefMode > 1.5f ) {
+        // 0.5 is the neutral surface, so a flat stretch of the map displaces nothing and the range
+        // is symmetric around the original geometry.
+        relief = ( TX_Relief.SampleLevel( SS_Linear, o.uv, 0 ).r - 0.5f ) * 2.0f;
+    } else if ( ReliefMode > 0.5f ) {
+        const float3 nTile = TX_Relief.SampleLevel( SS_Linear, o.uv, 0 ).xyz * 2.0f - 1.0f;
+        relief = saturate( 1.0f - nTile.z ) * 0.5f;
+    }
 
     o.normalVS = n;
     o.viewPos  = v + n * ( ( w + relief ) * DispScale * edgeMean );
