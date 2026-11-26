@@ -17,6 +17,14 @@ if (-not $fxc) { Write-Host "::error::Nie znaleziono fxc.exe w Windows Kits"; ex
 Write-Host "fxc: $fxc"
 
 $includes = @("-I", $root, "-I", (Join-Path $root "Shaders"), "-I", (Join-Path $root "include"))
+
+# Sonda: bez tego bramka twierdzila "wszystko zepsute", bo *> $null wyciszalo prawdziwy powod.
+$probe = Get-ChildItem (Join-Path $root "Shaders") -Filter "*.hlsl" -Recurse | Select-Object -First 1
+Write-Host ("probe plik: " + $probe.FullName)
+Write-Host ("fxc istnieje: " + (Test-Path $fxc))
+& $fxc /? 2>&1 | Select-Object -First 2 | ForEach-Object { Write-Host ("  fxc? " + $_) }
+& $fxc /nologo /T ps_5_0 /E main @includes /Fo (Join-Path $env:TEMP "probe.cso") $probe.FullName 2>&1 | Select-Object -First 8 | ForEach-Object { Write-Host ("  wynik: " + $_) }
+Write-Host ("probe rc=" + $LASTEXITCODE)
 $profiles = @("ps_5_0", "vs_5_0", "cs_5_0", "gs_5_0")
 $entries = @("main", "PSMain", "VSMain", "CSMain", "GSMain", "HSMain", "DSMain")
 $files = Get-ChildItem (Join-Path $root "Shaders") -Recurse -Include *.hlsl, *.fx
