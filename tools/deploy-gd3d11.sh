@@ -13,8 +13,10 @@
 #  * Na instancji nie ma GD3D11/D3D12 (dodatek mastera), wiec lista do kopii zapasowej musi byc
 #    budowana dynamicznie - tar na brakujacym czlonku konczy sie bledem i pustą kopią.
 #
-# Dlatego komendy zdalne ida jako JEDEN SKRYPT po stdin (jak sondy), a nie jako jedna linia
-# z zagniezdzonymi cudzyslowami - ten skrypt przewrocil sie na tym dwa razy.
+# Komendy zdalne ida jako JEDEN SKRYPT, ale WYSYLANY PLIKIEM i uruchamiany po sciezce.
+# ZMIERZONE 26.11.2026: "ssh ... bash -s < skrypt" gubi znak - powloka logowania czyta z tego
+# samego strumienia i "sleep 3" dotarlo jako "leep 3", wiec restart gry sie nie wykonal. Potok do
+# tail do tego ukryl niezerowy kod wyjscia, wiec wdrozenie wygladalo na udane.
 #
 # Wdrazamy WYBIORCZO: binarka + jej biblioteki + GD3D11/{Bin, shaders, D3D12}, kopiujac NA
 # istniejace drzewo, zeby shadery wlasne NB (PS_Ghost.hlsl, PS_LinDepth.hlsl, SMAA.fx/fxh) zostaly.
@@ -88,4 +90,6 @@ echo "   wycofanie: tar xzf \$BK/renderer-before.tgz -C \"\$SYSTEM\""
 REMOTE
 
 echo "=== 2-4. kopia zapasowa, kopiowanie, restart i dowod ==="
-$SSH bash -s < /tmp/apply-gd3d11.sh
+scp -q -i "$KEY" -P "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=no \
+    /tmp/apply-gd3d11.sh "root@$HOST_IP:/tmp/apply-gd3d11.sh"
+$SSH bash /tmp/apply-gd3d11.sh
