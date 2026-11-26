@@ -12,87 +12,87 @@ was traced through the code and the conclusion is not obvious from any single fi
 - `Shaders/PNAEN_Tesselation.hlsl`, `Shaders/domain_PNAEN.hlsl` - a PN-triangle hull/domain pair
   for a **3-control-point** patch, so no adjacency index buffer is required: the existing triangle
   index buffer can be drawn as `D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST`.
-That is the whole list for **this** tree: `grep -rin tessel` over `D3D11Engine` (excluding vendor
-code) returns those utilities, one comment about the ocean, and third-party headers. Nothing else.
+- `Shaders/WorldTess.hlsl` - the pair this fork uses for the static world mesh (see below).
 
 ## Where the rest of the scaffolding lives
 
-`TesselationFactor` / `TesselationRange` (20.0 / 8.0, exposed through AntTweakBar under `General/`)
-and the per-material `std::string TesselationShaderPair`, set by `D2DEditorView.cpp` when the mesh
-editor smooths a mesh with SPACE, are in **SaiyansKing's tree**, not in this one. They were traced
-there while looking for what a port would bring.
+`TesselationFactor` / `TesselationRange` and the per-material `TesselationShaderPair` (set by
+`D2DEditorView.cpp` when the mesh editor smooths a mesh with SPACE) are in **SaiyansKing's tree**,
+not in this one. Here tessellation is driven by two renderer settings instead, so it does not depend
+on a material field that no loader writes.
 
-So in this fork tessellation is two shader files and a set of utilities, referenced by nothing - it
-is even less wired than the other tree, where at least an editor path writes the field.
+## Where the hook lives (settled 26.11.2026)
 
-## What is missing
+The first implementation hooked `GothicAPI::DrawMeshInfo` and was measured never to run for the
+visible world: `D3D11ForwardPlusRenderer.cpp` has **zero** calls to that function, and it is only
+reached from the poly-strip / animated-texture path. That branch is gone.
 
-- **Nothing reads `TesselationShaderPair`.** It has exactly two occurrences in the tree: its
-  declaration and that one assignment. It is not in `MaterialInfo::Buffer`, so it does not even
-  survive a restart.
-- **`HDShaderID` has one entry, `HD_OceanTess`.** There is no world-mesh tessellation shader
-  registered, so no material could select one even if something read the field.
-- **The existing pair does not fit world geometry.** Its hull input is
-  `TEXCOORD0 = view position, TEXCOORD1 = world normal, TEXCOORD2 = view normal`, while the world
-  vertex shader (`VS_ExInstancedObj.hlsl`) writes `TEXCOORD4 = normal (view)`,
-  `TEXCOORD5 = view position`, plus UVs, diffuse, tangent and two clip positions. Binding the pair
-  to world meshes would be a signature mismatch, which is presumably why nobody did.
-- **The domain shader cannot re-project without the view-projection matrix.** It interpolates the
-  patch in object space, so the displaced position has to be projected again; that matrix is not
-  reachable from the shader as the scaffolding stands, it needs a constant buffer fed from the
-  render pass.
+The tessellated draw now lives in `D3D11GraphicsEngine::DrawWorldMesh`, which is where the visible
+world passes: `DrawWorldMeshNaive` -> `DrawWorldMesh`, twice per frame in Forward+ (once as the
+depth prepass, once for colour), drawing the wrapped 36-byte world mesh with `VS_ExPacked` at
+`BaseIndexLocation + IndexOffset` with `R32_UINT` indices.
 
-## What a working version needs
+Three things that each cost a full debugging cycle, all measured on the instance:
 
-1. A hull/domain pair written against `VS_ExInstancedObj`'s output, in one file (the class takes
-   one path and compiles both entries from it), including `AdaptiveTesselation.h` for the factors.
-2. A `cbuffer` with the view-projection matrix, `TesselationFactor` and `TesselationRange`, pushed
-   with `D3D11HDShader::UpdateBuffer` from the render pass.
-3. `HDShaderID::HD_PNAEN` plus its `ShaderRegistry` entry, `with_category(ShaderCategory)`.
-4. In the world-mesh draw: when tessellation is enabled and the material carries a pair, bind the
-   HD shader, switch the topology to `3_CONTROL_POINT_PATCHLIST`, draw, then unbind and restore
-   `TRIANGLELIST`. The switch must be gated by a setting that defaults to off, so a mistake cannot
-   corrupt normal rendering.
-5. The PN displacement itself: subdividing a flat triangle only costs triangles and changes nothing
-   visible, so the value comes from displacing along the interpolated normal by the
-   barycentric-weighted deviation of the control points - the classic PN-triangle term.
-
-## Where the hook has to live (measured 26.11.2026)
-
-The first implementation hooked `GothicAPI::DrawMeshInfo`. A world run with factor 8 and a
-deliberately extreme 5.0 displacement produced an untouched picture **and an empty log**, so the
-branch never ran - proved by the log line added for exactly that purpose, not by eyeballing frames
-(two earlier attempts compared a menu frame against a world frame and were worthless).
-
-Reason, from the code: `D3D11ForwardPlusRenderer.cpp` has **zero** calls to `DrawMeshInfo`. This
-build draws the visible world through Forward+, which has its own draw path; `DrawMeshInfo` is only
-reached from the poly-strip / animated-texture path. The tessellated draw therefore has to be
-attached to the Forward+ static-mesh draw, where the geometry actually passes.
+1. **`DrawWorldMesh` unbinds HS/DS itself.** Right after `BindWrappedWorldMeshPacked` it calls
+   `DSSetShader(nullptr)` / `HSSetShader(nullptr)` as part of its own "draw triangles, not patches"
+   setup. A tessellation bind placed before those two lines issues every patch draw with no hull and
+   no domain shader - which draws **nothing**. The symptom was the static world mesh (the terrain and
+   its textures) disappearing while the log happily reported tessellated ranges, and the displacement
+   setting having no effect because no shader was reading it. Bind after the resets.
+2. **The prepass has to tessellate too.** The colour pass tests `GREATER_EQUAL` against the prepass
+   depth, and the prepass' position-only stream (`MeshPositionBuffer` + `VS_ExDepth`) carries no
+   normal, so a normal-driven displacement cannot run from it. With tessellation on, the packed
+   stream stays bound for the whole prepass.
+3. **The hull input signature must match `VS_ExPacked` exactly** - the same ten semantics, including
+   `TANGENT` (TEXCOORD3) and the far-field term (TEXCOORD8). A mismatch is a device error, not a
+   visual glitch.
 
 ## Status (26.11.2026)
 
-**Proven:**
-- The hull/domain pair compiles through the shader gate (`hs_5_0`/`ds_5_0`) and is registered as
-  `HDShaderID::HD_WorldTess`; the engine compiles the hull stage at startup (`Log.txt`).
-- Settings persist as `[Display] Tessellation` (0 = off, otherwise the factor) and
-  `TessellationDisplacement`.
-- With `Tessellation=0` the rendered frame is byte-identical to the build before this work, so the
-  off path cannot regress anything.
+**Proven in a world run** (line read from `Log.txt`, frame captured after `Done extracting world!`):
 
-**Not live:**
-- The draw branch in `GothicAPI::DrawMeshInfo` never runs for the visible world (see above). A
-  verified world run - checked by frame size, after two attempts that compared a menu frame against
-  a world frame - produced no log line, and a deliberately extreme 5.0 displacement left the picture
-  untouched.
+- `Tessellation: displacing world meshes (factor 8, scale 5, 848 ranges as 3-control-point patches)`
+  - the line comes from the Forward+ draw itself, i.e. from the path the visible world takes.
+- `TessellationDisplacement` 12 bulges the surfaces absurdly and 20 pushes the ground through the
+  camera: the setting drives geometry, not just a counter. At 5.0 the bulge is present but subtle,
+  which is why the first attempt concluded "no effect" - see the amplitude note below.
+- The frame stays a world frame: terrain, its textures, props and HUD all render, with
+  `AllowNormalmaps=1` and normal-mapped surfaces unaffected.
+- With `Tessellation=0` the whole block is skipped, so the off path cannot regress anything.
 
-**Next step:**
-- Attach the tessellated draw to the Forward+ static-mesh draw, then verify by (a) the branch's log
-  line appearing in a world run, (b) an extreme displacement visibly distorting geometry, (c) the
-  frame still being a world frame rather than black.
+Both settings are in the F11 menu under *World -> Tessellation* and are read every frame, so the
+effect is live there; they persist as `[Display] Tessellation` / `TessellationDisplacement` in
+`system/GD3D11/UserSettings.ini`.
+
+**Known limits:**
+- One uniform factor per patch; `AdaptiveTesselation.h` (distance/screen-space factors) is still
+  unused, so the factor does not fall off with distance.
+- Shadows (`ShadowPass_DrawWorldMesh`) draw the undisplaced world, so a strongly displaced surface
+  does not cast a matching shadow.
+- The amplitude is a fraction of the patch's mean edge length. The term `2*x*y*z` peaks at 2/27 and
+  is zero on every edge (that is what keeps patches watertight), so subdivision alone is invisible
+  and a fixed unit scale reads as "the feature does nothing".
+
+## Next step
+
+- Distance-adaptive factors from `AdaptiveTesselation.h`, and sampling the material's normal map in
+  the domain shader so the displacement follows the texture instead of a barycentric bump.
 
 ## How to tell whether it works
 
-`hull shader:` and `domain shader:` lines in `Log.txt` **during a world run**. A run that reaches
-the world without them proves nothing ran, whatever the settings say. The main menu is not a
-valid test: it is drawn by the overlay at display resolution and is independent of render scale and
-tessellation alike.
+1. `Log.txt` must contain the `Tessellation: displacing world meshes (...)` line **and** the frame
+   must still show the terrain. The line alone is not proof: it is emitted when the draw is issued,
+   which was also true while 848 patch draws went out with no shader bound.
+2. The main menu is not a test. A frame that shows only bushes, palms and ruins with no ground means
+   the static world mesh is not being drawn at all - that is the signature of the bug above.
+
+## Driving the instance (measured)
+
+- After a restart the game sits on its main menu; a static ~2.84 MB frame that also carries the
+  engine's "Compiling shaders..." text while it warms up. **`F12` in that menu loads the quicksave.**
+  Mouse clicks in the menus do nothing under the stream, and synthetic arrow keys are unreliable.
+  The world is ready when `Log.txt` says `Loading world!` / `Done extracting world!` - never judge by
+  frame size.
+- Never move or delete the game's `saves/` as a diagnostic. Copy what is needed to a path outside
+  the game tree; a `mv saves /tmp/x` followed by `rm -rf /tmp/x` is unrecoverable on this instance.

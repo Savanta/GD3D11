@@ -809,6 +809,19 @@ void RenderWorldTab( GothicRendererSettings& settings ) {
     CheckRow( "Draw World Section Intersections", &settings.DrawSectionIntersections,
         "Draws every world chunk that intersects with the GD3D11 world draw distance." );
 
+    // Live: the world draw reads both every frame, so dragging the slider shows the effect without
+    // a restart. The factor multiplies triangles per patch by (factor * factor), so 0 stays the
+    // default and anything past ~16 is a debugging tool rather than a setting.
+    ImGui::SeparatorText( "Tessellation" );
+
+    SliderIntRow( "Factor", "##Tessellation", &settings.Tessellation, 0, 64, "%d",
+        "Subdivides the static world mesh into 3-control-point patches; 0 = off.\n"
+        "Off costs nothing: the world is drawn as plain triangles." );
+    SliderFloatRow( "Displacement", "##TessellationDisplacement", &settings.TessellationDisplacement,
+        0.0f, 20.0f, "%.2f",
+        "How far the patch centre is pushed along its normal, as a fraction of the triangle's mean\n"
+        "edge length. 0 = subdivide only, which is invisible; ~12 and above is absurd on purpose." );
+
 #ifdef BUILD_GOTHIC_1_08k
     CheckRow( "Forest Portals", &settings.DrawG1ForestPortals,
         "The darkening textures Gothic 1 places around forests and some doors." );
