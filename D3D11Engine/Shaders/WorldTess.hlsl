@@ -21,6 +21,8 @@ cbuffer TessParams : register( b0 )
     float  MinFactor;    // never go below this, so a small patch still gets a real patch
     float  ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map, 3 = diffuse luminance
     float  TessPad;
+    float3 UpVS;         // world up in view space: dot(normalVS, UpVS) is the world Y of the normal
+    float  TessPad2;
 };
 
 #include "AdaptiveTesselation.h"
@@ -160,8 +162,18 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
         relief = saturate( 1.0f - nTile.z ) * 0.5f;
     }
 
+    // Walkable surfaces keep their collision shape. A floor's collision polygon is the flat triangle,
+    // so bulging it up leaves the hero standing inside the rock (measured at displacement 8) - the
+    // ground is the one place where a mismatch is felt during play rather than seen. Fade the
+    // displacement out as the surface turns from vertical (walls, rocks) towards horizontal.
+    // 0.5 is 60 degrees off vertical (a cliff, full displacement), 0.85 is about 32 degrees (gentle
+    // ground, none). Between them it fades, so the seam between a wall and the ground it meets is a
+    // gradient, not a ledge.
+    const float upness = abs( dot( n, UpVS ) );
+    const float walkable = 1.0f - smoothstep( 0.5f, 0.85f, upness );
+
     o.normalVS = n;
-    o.viewPos  = v + n * ( ( w + relief ) * DispScale * edgeMean );
+    o.viewPos  = v + n * ( ( w + relief ) * walkable * DispScale * edgeMean );
     o.pos      = mul( float4( o.viewPos, 1.0f ), Proj );
 
     return o;

@@ -5386,8 +5386,10 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
         XMFLOAT2 ScreenSize;
         float TargetPixels;
         float MinFactor;
-        float ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map
+        float ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map, 3 = diffuse
         float Pad;
+        XMFLOAT3 UpVS;      // world up, in view space: what tells a floor from a wall in the DS
+        float Pad2;
     } tp = {};
     if ( tessFactor > 0 && !FeatureLevel10Compatibility ) {
         if ( auto hd = GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
@@ -5401,7 +5403,12 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
                 Engine::GAPI->GetRendererState().RendererSettings.TessellationTargetPixels, 1, 64 ) );
             tp.MinFactor = 1.0f;
             tp.ReliefMode = 0.0f;   // the first material decides; the patch draw re-uploads on a change
-            static_assert( sizeof( WorldTessParams ) == 96, "WorldTessParams must match TessParams in WorldTess.hlsl" );
+            // A floor's collision is the flat triangle, so displacing it makes the hero sink into
+            // the bulge. The domain stage needs to know which surfaces are walkable, and the one
+            // thing it has is the view-space normal, so pass world-up in view space.
+            XMStoreFloat3( &tp.UpVS, XMVector3Normalize( XMVector3TransformNormal(
+                XMVectorSet( 0.0f, 1.0f, 0.0f, 0.0f ), Engine::GAPI->GetViewMatrixXM() ) ) );
+            static_assert( sizeof( WorldTessParams ) == 112, "WorldTessParams must match TessParams in WorldTess.hlsl" );
 
             // Both stages read b0; D3D11HDShader::UpdateBuffer only binds the domain stage.
             const ConstantBufferAllocation alloc = GetConstantBufferPool()->Allocate( &tp, sizeof( tp ) );
