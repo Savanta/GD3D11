@@ -65,6 +65,11 @@ void ShaderRegistry::Build() {
             .with_category( ShaderCategory::Water ) );
     }
 
+    // World-mesh tessellation. Registered unconditionally - it costs nothing until something binds
+    // it, and [Display] Tessellation decides that (see GothicAPI::DrawMeshInfo).
+    Shaders.push_back( ShaderInfo::make<HDShaderID::HD_WorldTess>( "WorldTess.hlsl" )
+        .with_category( ShaderCategory::HullDomain | ShaderCategory::Other ) );
+
     Shaders.push_back( ShaderInfo::make<VShaderID::VS_ParticlePoint>( "VS_ParticlePoint.hlsl" )
         .with_layout( VERTEX_INPUT_LAYOUT_11_VS_ParticlePoint ) );
 

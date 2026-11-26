@@ -648,6 +648,12 @@ struct GothicRendererSettings {
         GRAPHICS_ULTRA
     };
 
+    /** Tessellation of world meshes: 0 disables it, any other value is the tessellation factor.
+        Defaults to off so a mistake here cannot touch normal rendering. */
+    int Tessellation = 0;
+    /** PN displacement scale, in view-space units. */
+    float TessellationDisplacement = 0.12f;
+
     enum E_Upscaler {
         UPSCALER_DEFAULT = 0,
         UPSCALER_FSR_1 = 1,

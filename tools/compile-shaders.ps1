@@ -35,7 +35,7 @@ Write-Host ("fxc istnieje: " + (Test-Path $fxc))
 & $fxc /? 2>&1 | Select-Object -First 2 | ForEach-Object { Write-Host ("  fxc? " + $_) }
 & $fxc /nologo /T ps_5_0 /E main @includes /Fo (Join-Path $env:TEMP "probe.cso") $probe.FullName 2>&1 | Select-Object -First 8 | ForEach-Object { Write-Host ("  wynik: " + $_) }
 Write-Host ("probe rc=" + $LASTEXITCODE)
-$profiles = @("ps_5_0", "vs_5_0", "cs_5_0", "gs_5_0")
+$profiles = @("ps_5_0", "vs_5_0", "cs_5_0", "gs_5_0", "hs_5_0", "ds_5_0")   # hs/ds: teselacja swiata
 $entries = @("main", "PSMain", "VSMain", "CSMain", "GSMain", "HSMain", "DSMain")
 $files = Get-ChildItem (Join-Path $root "Shaders") -Recurse -Include *.hlsl, *.fx
 Write-Host ("shaderow: " + $files.Count)

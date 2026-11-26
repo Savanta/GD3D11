@@ -144,6 +144,7 @@ enum class GShaderID : size_t {
 
 enum class HDShaderID : size_t {
     HD_OceanTess,
+    HD_WorldTess,
     COUNT
 };
 

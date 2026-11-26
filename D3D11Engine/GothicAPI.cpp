@@ -2233,6 +2233,33 @@ void GothicAPI::DrawMeshInfo( zCMaterial* mat, MeshInfo* msh ) {
             RendererState.GraphicsState.FF_GSwitches &= ~GSWITCH_ALPHAREF;
     }
 
+    // Tessellation of world meshes (docs/tessellation.md). Off unless [Display] Tessellation is
+    // set, and only for indexed triangle geometry - that is what a 3-control-point patch needs.
+    const int tessFactor = RendererState.RendererSettings.Tessellation;
+    if ( tessFactor > 0 && msh->MeshIndexBuffer && msh->Indices.size() >= 3 && msh->Indices.size() % 3 == 0 ) {
+        D3D11GraphicsEngine* g = AsD3D11Engine( Engine::GraphicsEngine );
+        if ( D3D11HDShader* hd = g->GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
+            struct TessParams {
+                XMFLOAT4X4 Proj;
+                float Factor;
+                float Disp;
+                float Pad0;
+                float Pad1;
+            } tp = {};
+            tp.Proj = GetProjectionMatrix();
+            tp.Factor = static_cast<float>(tessFactor);
+            tp.Disp = RendererState.RendererSettings.TessellationDisplacement;
+
+            hd->Apply();
+            hd->UpdateBuffer( "TessParams", &tp, sizeof( tp ) );
+            g->GetContext()->IASetPrimitiveTopology( D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST );
+            g->DrawVertexBufferIndexed( msh->GetMeshVertexBuffer(), msh->GetMeshIndexBuffer(), msh->Indices.size() );
+            D3D11HDShader::Unbind();
+            g->GetContext()->IASetPrimitiveTopology( D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+            return;
+        }
+    }
+
     if ( !msh->MeshIndexBuffer ) {
         Engine::GraphicsEngine->DrawVertexBuffer( msh->GetMeshVertexBuffer(), msh->Vertices.size() );
     } else {
@@ -6130,6 +6157,8 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
     }
     WritePrivateProfileStringA( "Display", "ResolutionScale", to_string_locale_independent( s.ResolutionScalePercent ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "Upscaler", to_string_locale_independent( static_cast<int>(s.Upscaler) ).c_str(), ini.c_str() );
+    WritePrivateProfileStringA( "Display", "Tessellation", to_string_locale_independent( s.Tessellation ).c_str(), ini.c_str() );
+    WritePrivateProfileStringA( "Display", "TessellationDisplacement", to_string_locale_independent( s.TessellationDisplacement ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "VSync", to_string_locale_independent( s.EnableVSync ? TRUE : FALSE ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "ForceFOV", to_string_locale_independent( s.ForceFOV ? TRUE : FALSE ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "FOVHoriz", to_string_locale_independent( static_cast<int>(s.FOVHoriz) ).c_str(), ini.c_str() );
@@ -6443,6 +6472,12 @@ XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
         }
         s.ResolutionScalePercent = std::clamp<int>( GetPrivateProfileIntA( "Display", "ResolutionScale", ds.ResolutionScalePercent, ini.c_str() ), 25, 200 );
         s.Upscaler = (GothicRendererSettings::E_Upscaler)std::clamp<int>( GetPrivateProfileIntA( "Display", "Upscaler", ds.Upscaler, ini.c_str() ), 0, GothicRendererSettings::E_Upscaler::_UPSCALER_NUM_MODES - 1 );
+        s.Tessellation = std::clamp<int>( GetPrivateProfileIntA( "Display", "Tessellation", ds.Tessellation, ini.c_str() ), 0, 64 );
+        {
+            char tessDispBuf[64] = {};
+            GetPrivateProfileStringA( "Display", "TessellationDisplacement", "", tessDispBuf, sizeof( tessDispBuf ), ini.c_str() );
+            s.TessellationDisplacement = tessDispBuf[0] ? (float)atof( tessDispBuf ) : ds.TessellationDisplacement;
+        }
         s.EnableVSync = GetPrivateProfileBoolA( "Display", "VSync", ds.EnableVSync, ini );
         s.ForceFOV = GetPrivateProfileBoolA( "Display", "ForceFOV", ds.ForceFOV, ini );
         s.FOVHoriz = GetPrivateProfileIntA( "Display", "FOVHoriz", 90, ini.c_str() );
