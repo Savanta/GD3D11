@@ -10,10 +10,11 @@ $root = Join-Path $env:GITHUB_WORKSPACE "D3D11Engine"
 $allowPath = Join-Path $env:GITHUB_WORKSPACE "tools/shader-allowlist.txt"
 $allow = @()
 if (Test-Path $allowPath) {
-    # Trim: artefakt z Windows ma CRLF, a porownanie -contains z "
-" na koncu cicho przestaje pasowac.
+    # Trim: artefakt z Windows ma koncowki CRLF, a porownanie -contains nie obcina CR,
+    # wiec kazdy wpis na liscie wracalby jako blad.
     $allow = Get-Content $allowPath | Where-Object { $_ } | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith("#") }
 }
+Write-Host ("allowlist: " + $allow.Count + " wpisow (plik istnieje: " + (Test-Path $allowPath) + ")")
 
 # ZMIERZONE 26.11.2026: bez jawnej -Path glob przeszukiwal katalog roboczy i wskazal plik
 # z repozytorium ("Program 'fxc.exe' failed to run: D:\a\GD3D11\...", rc pusty - proces nie
