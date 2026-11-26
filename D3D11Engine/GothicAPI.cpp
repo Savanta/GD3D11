@@ -2238,7 +2238,7 @@ void GothicAPI::DrawMeshInfo( zCMaterial* mat, MeshInfo* msh ) {
     const int tessFactor = RendererState.RendererSettings.Tessellation;
     if ( tessFactor > 0 && msh->MeshIndexBuffer && msh->Indices.size() >= 3 && msh->Indices.size() % 3 == 0 ) {
         D3D11GraphicsEngine* g = AsD3D11Engine( Engine::GraphicsEngine );
-        if ( D3D11HDShader* hd = g->GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
+        if ( auto hd = g->GetShaderManager().GetHDShader( HDShaderID::HD_WorldTess ) ) {
             struct TessParams {
                 XMFLOAT4X4 Proj;
                 float Factor;
