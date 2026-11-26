@@ -69,6 +69,27 @@ build draws the visible world through Forward+, which has its own draw path; `Dr
 reached from the poly-strip / animated-texture path. The tessellated draw therefore has to be
 attached to the Forward+ static-mesh draw, where the geometry actually passes.
 
+## Status (26.11.2026)
+
+**Proven:**
+- The hull/domain pair compiles through the shader gate (`hs_5_0`/`ds_5_0`) and is registered as
+  `HDShaderID::HD_WorldTess`; the engine compiles the hull stage at startup (`Log.txt`).
+- Settings persist as `[Display] Tessellation` (0 = off, otherwise the factor) and
+  `TessellationDisplacement`.
+- With `Tessellation=0` the rendered frame is byte-identical to the build before this work, so the
+  off path cannot regress anything.
+
+**Not live:**
+- The draw branch in `GothicAPI::DrawMeshInfo` never runs for the visible world (see above). A
+  verified world run - checked by frame size, after two attempts that compared a menu frame against
+  a world frame - produced no log line, and a deliberately extreme 5.0 displacement left the picture
+  untouched.
+
+**Next step:**
+- Attach the tessellated draw to the Forward+ static-mesh draw, then verify by (a) the branch's log
+  line appearing in a world run, (b) an extreme displacement visibly distorting geometry, (c) the
+  frame still being a world frame rather than black.
+
 ## How to tell whether it works
 
 `hull shader:` and `domain shader:` lines in `Log.txt` **during a world run**. A run that reaches
