@@ -320,6 +320,19 @@ void MyDirectDrawSurface7::WaitForPendingAdditionalResources() {
 }
 
 /** Loads additional resources if possible */
+void MyDirectDrawSurface7::LatchTextureOwner( zCTexture* ownedTexture ) {
+    if ( !ownedTexture || AdditionalResourcesResolved ) {
+        return;
+    }
+
+    // The latched name never changes, so a surface already attributed to another texture is left alone.
+    if ( GothicTexture && GothicTexture != ownedTexture ) {
+        return;
+    }
+
+    LoadAdditionalResources( ownedTexture );
+}
+
 void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
     // Gothic unlocks every mip level of a texture and each of them ends up here (the mip surfaces are
     // views onto this one). Everything below — the VDFS probes, the cache lookups, the worker job —
@@ -418,9 +431,11 @@ void MyDirectDrawSurface7::LoadAdditionalResources( zCTexture* ownedTexture ) {
         // A height set has to be named after the texture the renderer asks for, and nowhere else is
         // that name visible - so trace the first few probes even when nothing was found, plus every
         // actual height hit. Debug log only, capped so a world load does not flood the file.
+        // 400, not 40: with world textures reaching this probe the log doubles as the inventory of
+        // what the game actually asks for, which is what a height/normal map set has to be named after.
         static std::atomic<int> sProbesLogged{ 0 };
         if ( Engine::GAPI->GetRendererState().RendererSettings.EnableDebugLog
-            && sProbesLogged.fetch_add( 1 ) < 40 ) {
+            && sProbesLogged.fetch_add( 1 ) < 400 ) {
             Logging::Inf( "Additional maps for '{}': none", TextureName );
         }
         return; // No replacements for this texture — nothing to hand off.

@@ -39,7 +39,16 @@ public:
         GothicAPI::ScopedLoadingTexture loading( thisptr );
 
         // TODO: Figure out why some DTX1a Textures crash this
-        return HookedFunctions::OriginalFunctions.ofiginal_zCTextureLoadResourceData( thisptr );
+        const int result = HookedFunctions::OriginalFunctions.ofiginal_zCTextureLoadResourceData( thisptr );
+
+        // The surface's Unlock only probes while the marker above is live, and a texture loaded on the
+        // resource-manager thread defers its upload to the frame thread, past that window. Latch the
+        // owner here, where it is known exactly, and let it probe now.
+        if ( MyDirectDrawSurface7* surface = thisptr->GetSurface() ) {
+            surface->LatchTextureOwner( thisptr );
+        }
+
+        return result;
     }
 
     /*
@@ -172,6 +181,12 @@ public:
 
             // Cache the texture, overwrite priority if wanted.
             ResourceManagerCacheIn( this, zCTextureCacheHack::ForceCacheIn ? -1 : priority );
+
+            // A texture that was already resident caches in without a load, so nothing else would ever
+            // name its surface. Same reason as in hooked_LoadResourceData.
+            if ( MyDirectDrawSurface7* cached = GetSurface() ) {
+                cached->LatchTextureOwner( this );
+            }
         }
 
         MyDirectDrawSurface7* surface = GetSurface();

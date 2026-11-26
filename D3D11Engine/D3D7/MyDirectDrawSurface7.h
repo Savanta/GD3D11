@@ -125,6 +125,14 @@ public:
         surfaces resolve to it. */
     void LoadAdditionalResources( zCTexture* ownedTexture );
 
+    /** Latches the zCTexture that owns this surface and probes for its extra maps.
+        Called from zCTexture's own load/cache-in hook, where the owner is known for certain. The
+        surface's Unlock cannot do that on its own: a texture loaded on the resource-manager thread
+        uploads its pixels through UpdateDataDeferred, which runs on the frame thread long after the
+        "currently caching in" marker is gone - so GetLoadingTexture() is null there and the probe is
+        skipped. That is why a whole session probed ten menu textures and not one world texture. */
+    void LatchTextureOwner( zCTexture* ownedTexture );
+
     /** Joins an in-flight async additional-resource load for this surface. Must be called before
         anything reads or frees Normalmap/FxMap non-atomically. */
     void WaitForPendingAdditionalResources();
