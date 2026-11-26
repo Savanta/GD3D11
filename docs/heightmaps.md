@@ -57,3 +57,28 @@ walls, the whole family of work is not worth it and tessellation stays a silhoue
 
 A height set baked from another mod's textures is a derivative work. Ship the **tool** and let users
 bake locally, or ask the pack's authors first. Do not redistribute baked data.
+
+## Where the maps come from (GPU route, measured)
+
+Nothing in this mod ships a normal or height map, so they have to be generated. Two GPU routes were
+tried on a brick swatch with an RTX 3080:
+
+- **Depth Anything V2** (`depth-anything/Depth-Anything-V2-Small-hf`, via transformers): **wrong tool.**
+  A monocular depth model predicts *scene* geometry, and a material texture has none, so it returned a
+  smooth vertical gradient across the whole image - a bowl where the wall is flat - and nothing at the
+  brick joints. Its output is unusable for relief, no matter how it is normalised.
+- **Marigold Normals** (`prs-eth/marigold-normals-v0-1`, via `diffusers.MarigoldNormalsPipeline`):
+  **right tool.** 8 steps, one ensemble, <1 s per 512x512 texture on the 3080. On the same swatch it
+  produced a running-bond brick pattern with flat faces, recessed joints and bevelled edges, mean
+  (137, 123, 255), i.e. a plausible tangent-space normal map.
+
+`tools/genmaps_gpu.py` runs the normal route over a directory of textures and writes
+`<name>_NORMAL.DDS` (uncompressed R8G8B8A8, X/Y/Z in RGB, green flipped to the DirectX convention the
+engine decodes with `.xyz * 2 - 1`). Heights come from `tools/bake_heightmap.py` on those normal maps
+(Poisson solve), so displacement and shading share one field instead of two guesses:
+
+    tools/genmaps_gpu.py --input system/TexDump --out-normal /tmp/n
+    for f in /tmp/n/*_NORMAL.DDS; do tools/bake_heightmap.py "$f" "/tmp/h/$(basename ${f%_NORMAL.DDS})_HEIGHT.DDS"; done
+
+The textures themselves come from `GD3D11_TEXDUMP=1`, which writes every texture the game loads to
+`system\TexDump\<name>.DDS` (see the dump note in `docs/tessellation.md`).
