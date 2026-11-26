@@ -52,13 +52,15 @@ Three things that each cost a full debugging cycle, all measured on the instance
 
 **Proven in a world run** (line read from `Log.txt`, frame captured after `Done extracting world!`):
 
-- `Tessellation: displacing world meshes (factor 8, scale 5, 848 ranges as 3-control-point patches)`
-  - the line comes from the Forward+ draw itself, i.e. from the path the visible world takes.
-- `TessellationDisplacement` 12 bulges the surfaces absurdly and 20 pushes the ground through the
-  camera: the setting drives geometry, not just a counter. At 5.0 the bulge is present but subtle,
-  which is why the first attempt concluded "no effect" - see the amplitude note below.
-- The frame stays a world frame: terrain, its textures, props and HUD all render, with
-  `AllowNormalmaps=1` and normal-mapped surfaces unaffected.
+- `Tessellation: displacing world meshes (factor 8, target 8 px, scale 0.3, 848 ranges as 3-control-point patches)`
+  - the line comes from the Forward+ draw itself, i.e. from the path the visible world takes, and
+  `target 8 px` means the per-edge factors are the adaptive ones.
+- With `TessellationDisplacement` set in the tens the surfaces bulge absurdly and the ground pushes
+  through the camera: the setting drives geometry, not just a counter. Around 0.3 the relief follows
+  the textures and the frame is indistinguishable from a non-tessellated one except on close surfaces.
+- The frame stays a world frame: terrain, its textures, props and HUD all render at the capped 60 FPS
+  with the settings window open or closed, and no cracks appear at patch borders (the factors are
+  symmetric per edge, and every patch is at least `MinFactor`).
 - With `Tessellation=0` the whole block is skipped, so the off path cannot regress anything.
 
 Both settings are in the F11 menu under *World -> Tessellation* and are read every frame, so the
