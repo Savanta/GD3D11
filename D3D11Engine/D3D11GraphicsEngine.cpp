@@ -1245,8 +1245,23 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
         // exactly the requested size before giving up a single pixel of picture.
         if ( clientSize.x != newSize.x || clientSize.y != newSize.y ) {
             SetWindowLongPtr( m_OutputWindow, GWL_STYLE, WS_POPUP | WS_VISIBLE );
-            SetWindowPos( m_OutputWindow, HWND_TOP, 0, 0, newSize.x, newSize.y,
-                          SWP_NOACTIVATE | SWP_SHOWWINDOW );
+            // Resizing to the requested size is not enough: measured 1916x1076 for a 1920x1080 request
+            // after the popup style (2 px of frame on each side). Ask for the shortfall on top of the
+            // current outer size instead, a couple of rounds, so the *client* converges on the request
+            // rather than the window.
+            for ( int attempt = 0; attempt < 3; ++attempt ) {
+                GetClientRect( m_OutputWindow, &clientRect );
+                clientSize = INT2 { clientRect.right - clientRect.left, clientRect.bottom - clientRect.top };
+                if ( clientSize.x == newSize.x && clientSize.y == newSize.y ) {
+                    break;
+                }
+                RECT windowRect = {};
+                GetWindowRect( m_OutputWindow, &windowRect );
+                const int outerW = ( windowRect.right - windowRect.left ) + ( newSize.x - clientSize.x );
+                const int outerH = ( windowRect.bottom - windowRect.top ) + ( newSize.y - clientSize.y );
+                SetWindowPos( m_OutputWindow, HWND_TOP, 0, 0, outerW, outerH,
+                              SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOMOVE );
+            }
             GetClientRect( m_OutputWindow, &clientRect );
             clientSize = INT2 { clientRect.right - clientRect.left, clientRect.bottom - clientRect.top };
             Logging::Inf( "Swapchain: popup style applied, window {}x{} (requested {}x{})",
