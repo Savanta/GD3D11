@@ -654,8 +654,15 @@ struct GothicRendererSettings {
     /** Target on-screen length of one tessellated edge, in pixels. Edges are split until they are
         about this long, so the cost follows the picture instead of multiplying every triangle. */
     int TessellationTargetPixels = 8;
-    /** Displacement scale, as a fraction of the patch's mean edge length. */
+    /** Displacement scale, as a fraction of the patch's mean edge length. Scales the geometric
+        PN smoothing term only - the texture relief has its own absolute depth below. */
     float TessellationDisplacement = 0.12f;
+    /** Depth of the texture relief, in WORLD UNITS (metres), for a full-height texel.
+        Absolute on purpose: relief as a fraction of the triangle edge grows with the triangle, so on
+        the world's metre-wide triangles 0.3 became a 30 cm bulge that the (unchanged) collision hull
+        cannot account for - the hero walked inside walls, and neighbouring materials met at a visible
+        ledge. 0 disables texture relief and keeps the subdivision. */
+    float TessellationRelief = 0.03f;
 
     enum E_Upscaler {
         UPSCALER_DEFAULT = 0,

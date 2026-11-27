@@ -67,6 +67,39 @@ Both settings are in the F11 menu under *World -> Tessellation* and are read eve
 effect is live there; they persist as `[Display] Tessellation` / `TessellationDisplacement` in
 `system/GD3D11/UserSettings.ini`.
 
+## Two defects found in play (27.11.2026), and what they were
+
+The relief of the first implementation produced **visible seams** and a surface the **collision** does
+not follow. Different causes, different fixes.
+
+### Seams at every texture tile
+
+The height map was baked with a Poisson solve whose boundaries *mirrored* (`x-1 if x>0 else x+1`).
+Mirroring makes the gradient zero at the border, not the value equal, so the two opposite edges end at
+different heights and a repeated texture steps at every wrap. With a random slope field, 32x32, 300 SOR
+iterations, the mean jump across the wrap was **1.086** (columns) and **0.714** (rows) against a field
+spread of 0.45; with periodic boundaries (`(x-1) % w`, `(x+1) % w`) the same field gives **0.069** and
+**0.054** against 0.12 - i.e. at the discretisation noise. `tools/bake_heightmap.py` is periodic now;
+every `_HEIGHT.DDS` baked before this has to be re-baked.
+
+### The surface the collision does not follow
+
+`DispScale` scaled *both* the PN term and the texture relief by the patch's mean edge length. That is
+right for the PN term (a fraction of the triangle) and wrong for relief: a 20 cm stone joint is 20 cm
+whether the triangle under it is 20 cm or 3 m wide. On the world's metre-sized triangles the default 0.3
+became a **30 cm bulge**, which Gothic's collision hull - built from the flat triangles - cannot follow:
+the hero stands inside walls, and the neighbouring material meets the displaced surface at a ledge.
+
+`TessellationRelief` (`[Display] TessellationRelief` in `UserSettings.ini`, "Relief depth" under
+World -> Tessellation) is now a separate, absolute depth in metres (default 0.03, clamped to +-0.25 in
+the domain shader). `TessellationDisplacement` keeps its meaning for the geometric term only.
+
+What this does **not** do: give the displaced surface collision. Gothic's physics reads the original
+mesh; displacement is a rendering effect. The shader already fades it out as a surface turns from
+vertical towards horizontal (so floors, where the mismatch is felt, stay flat) and the relief is now
+centimetres, so the residual is invisible in play - but a wall you can lean on is still at its old
+position.
+
 **Known limits:**
 - Per-edge factors are screen-space adaptive (`Factor` is the ceiling, `TessellationTargetPixels` the
   target edge length), so cost follows what is on screen. `AdaptiveTesselation.h`'s orientation

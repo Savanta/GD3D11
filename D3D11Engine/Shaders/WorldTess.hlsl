@@ -20,7 +20,7 @@ cbuffer TessParams : register( b0 )
     float  TargetPixels; // one tessellated edge should be about this long on screen
     float  MinFactor;    // never go below this, so a small patch still gets a real patch
     float  ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map, 3 = diffuse luminance
-    float  TessPad;
+    float  ReliefScale;  // world units (metres) of relief for a full-height texel - absolute on purpose
     float3 UpVS;         // world up in view space: dot(normalVS, UpVS) is the world Y of the normal
     float  TessPad2;
 };
@@ -172,8 +172,16 @@ VS_OUT DSMain( HS_CONSTANT c, float3 bary : SV_DomainLocation, const OutputPatch
     const float upness = abs( dot( n, UpVS ) );
     const float walkable = 1.0f - smoothstep( 0.5f, 0.85f, upness );
 
+    // Two amplitudes with different units, and conflating them was the bug. The PN term is geometric:
+    // a fraction of the patch's own size, so a big triangle smooths as much as a small one. The
+    // texture relief is NOT geometric - a 20 cm stone joint is 20 cm whether the triangle under it is
+    // 20 cm or 3 m wide. Scaling it by edgeMean made a 0.3 setting a 30 cm bulge on the world's
+    // metre-sized triangles: the collision hull does not follow it (the hero walks inside the wall)
+    // and the neighbouring material meets it at a ledge you can see.
+    const float pnAmp  = w * walkable * DispScale * edgeMean;
+    const float texAmp = clamp( relief * walkable * ReliefScale, -0.25f, 0.25f );
     o.normalVS = n;
-    o.viewPos  = v + n * ( ( w + relief ) * walkable * DispScale * edgeMean );
+    o.viewPos  = v + n * ( pnAmp + texAmp );
     o.pos      = mul( float4( o.viewPos, 1.0f ), Proj );
 
     return o;

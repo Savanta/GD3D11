@@ -5470,7 +5470,7 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
         float TargetPixels;
         float MinFactor;
         float ReliefMode;   // 0 = none, 1 = normal-map slope, 2 = height map, 3 = diffuse
-        float Pad;
+        float ReliefScale;  // metres of displacement for a full-height texel (absolute, see WorldTess.hlsl)
         XMFLOAT3 UpVS;      // world up, in view space: what tells a floor from a wall in the DS
         float Pad2;
     } tp = {};
@@ -5486,6 +5486,7 @@ XRESULT D3D11GraphicsEngine::DrawWorldMesh( bool noTextures ) {
                 Engine::GAPI->GetRendererState().RendererSettings.TessellationTargetPixels, 1, 64 ) );
             tp.MinFactor = 1.0f;
             tp.ReliefMode = 0.0f;   // the first material decides; the patch draw re-uploads on a change
+            tp.ReliefScale = Engine::GAPI->GetRendererState().RendererSettings.TessellationRelief;
             // A floor's collision is the flat triangle, so displacing it makes the hero sink into
             // the bulge. The domain stage needs to know which surfaces are walkable, and the one
             // thing it has is the view-space normal, so pass world-up in view space.

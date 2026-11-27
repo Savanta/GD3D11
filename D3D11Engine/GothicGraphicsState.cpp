@@ -137,6 +137,7 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
         s.Tessellation = 4;
         s.TessellationTargetPixels = 12;
         s.TessellationDisplacement = 0.2f;
+        s.TessellationRelief = 0.02f;
 
         s.EnableGodRays = true;
     }
@@ -170,6 +171,7 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
         s.Tessellation = 8;
         s.TessellationTargetPixels = 8;
         s.TessellationDisplacement = 0.3f;
+        s.TessellationRelief = 0.03f;
 
         s.EnableGodRays = true;
     }
@@ -203,6 +205,7 @@ static void ApplyGraphicsPresets( GothicRendererSettings& s ) {
         s.Tessellation = 12;
         s.TessellationTargetPixels = 6;
         s.TessellationDisplacement = 0.4f;
+        s.TessellationRelief = 0.04f;
 
         s.EnableGodRays = true;
     }

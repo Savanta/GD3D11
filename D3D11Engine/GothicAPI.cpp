@@ -6137,6 +6137,7 @@ XRESULT GothicAPI::SaveMenuSettings( const std::string& file ) {
     WritePrivateProfileStringA( "Display", "Tessellation", to_string_locale_independent( s.Tessellation ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "TessellationTargetPixels", to_string_locale_independent( s.TessellationTargetPixels ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "TessellationDisplacement", to_string_locale_independent( s.TessellationDisplacement ).c_str(), ini.c_str() );
+    WritePrivateProfileStringA( "Display", "TessellationRelief", to_string_locale_independent( s.TessellationRelief ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "VSync", to_string_locale_independent( s.EnableVSync ? TRUE : FALSE ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "ForceFOV", to_string_locale_independent( s.ForceFOV ? TRUE : FALSE ).c_str(), ini.c_str() );
     WritePrivateProfileStringA( "Display", "FOVHoriz", to_string_locale_independent( static_cast<int>(s.FOVHoriz) ).c_str(), ini.c_str() );
@@ -6456,6 +6457,11 @@ XRESULT GothicAPI::LoadMenuSettings( const std::string& file ) {
             char tessDispBuf[64] = {};
             GetPrivateProfileStringA( "Display", "TessellationDisplacement", "", tessDispBuf, sizeof( tessDispBuf ), ini.c_str() );
             s.TessellationDisplacement = tessDispBuf[0] ? (float)atof( tessDispBuf ) : ds.TessellationDisplacement;
+        }
+        {
+            char tessRelBuf[64] = {};
+            GetPrivateProfileStringA( "Display", "TessellationRelief", "", tessRelBuf, sizeof( tessRelBuf ), ini.c_str() );
+            s.TessellationRelief = tessRelBuf[0] ? (float)atof( tessRelBuf ) : ds.TessellationRelief;
         }
         s.EnableVSync = GetPrivateProfileBoolA( "Display", "VSync", ds.EnableVSync, ini );
         s.ForceFOV = GetPrivateProfileBoolA( "Display", "ForceFOV", ds.ForceFOV, ini );

@@ -827,6 +827,12 @@ void RenderWorldTab( GothicRendererSettings& settings ) {
         "length. The bump is the patch's own deviation plus relief sampled from the material's normal\n"
         "map, so the displaced surface follows the texture grain.\n"
         "0 = subdivide only, which is invisible; ~12 and above is absurd on purpose." );
+    SliderFloatRow( "Relief depth", "##TessellationRelief", &settings.TessellationRelief,
+        0.0f, 0.5f, "%.3f m",
+        "How deep the texture relief pushes the surface, in world units (metres). Absolute because a\n"
+        "fraction of the triangle edge grows with the triangle: on metre-wide world triangles the old\n"
+        "0.3 was a 30 cm bulge, which the collision hull does not follow and which met the neighbouring\n"
+        "material at a visible ledge. 0 = subdivision only, no texture-driven displacement." );
 
 #ifdef BUILD_GOTHIC_1_08k
     CheckRow( "Forest Portals", &settings.DrawG1ForestPortals,
