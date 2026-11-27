@@ -1237,7 +1237,24 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
     if ( m_OutputWindow ) {
         RECT clientRect = {};
         GetClientRect( m_OutputWindow, &clientRect );
-        const INT2 clientSize { clientRect.right - clientRect.left, clientRect.bottom - clientRect.top };
+        INT2 clientSize { clientRect.right - clientRect.left, clientRect.bottom - clientRect.top };
+
+        // The non-client area is the first suspect: a window that carries a caption loses its height to
+        // it, and this box measured 1920x1056 against a 1920x1080 request with no window manager
+        // running. A flip-model swapchain must match the surface exactly, so make the window a popup of
+        // exactly the requested size before giving up a single pixel of picture.
+        if ( clientSize.x != newSize.x || clientSize.y != newSize.y ) {
+            SetWindowLongPtr( m_OutputWindow, GWL_STYLE, WS_POPUP | WS_VISIBLE );
+            SetWindowPos( m_OutputWindow, HWND_TOP, 0, 0, newSize.x, newSize.y,
+                          SWP_NOACTIVATE | SWP_SHOWWINDOW );
+            GetClientRect( m_OutputWindow, &clientRect );
+            clientSize = INT2 { clientRect.right - clientRect.left, clientRect.bottom - clientRect.top };
+            Logging::Inf( "Swapchain: popup style applied, window {}x{} (requested {}x{})",
+                clientSize.x, clientSize.y, newSize.x, newSize.y );
+        }
+
+        // Still off: follow the window rather than ask the driver to present a surface that does not
+        // exist. A picture a few pixels shorter beats no picture.
         if ( clientSize.x > 0 && clientSize.y > 0
             && ( clientSize.x != newSize.x || clientSize.y != newSize.y ) ) {
             Logging::Inf( "Swapchain: following the window {}x{} instead of the requested {}x{}",
@@ -1245,6 +1262,7 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
             newSize = clientSize;
         }
     }
+
 
     HRESULT hr;
     if ( memcmp( &Resolution, &newSize, sizeof( newSize ) ) == 0 && SwapChain.Get() )
