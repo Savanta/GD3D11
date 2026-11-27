@@ -565,8 +565,22 @@ static void __cdecl hooked_EntryPoint() {
     InitializeEngine();
     DetourTransactionCommit();
 
+    // Preloading game-folder DLLs exists to keep Union's DLL-load scanner away from dxcompiler.dll,
+    // which overflows its stack. It also means union-api sees those modules BEFORE its own scan - and
+    // measured 27.11.2026 the mod dies inside UNION_ABI.DLL while zCWorld::UnarchiveVobs creates a VOB
+    // (access violation writing into the exe's image). GD3D11_NO_PRELOAD=1 skips the preload without
+    // changing anything else, so the two effects can be told apart on the box.
+    static const bool preloadDisabled = [] {
+        char value[8] = {};
+        const DWORD len = GetEnvironmentVariableA( "GD3D11_NO_PRELOAD", value, sizeof( value ) );
+        return len > 0 && value[0] == '1';
+    }();
     if ( !Engine::PassThrough ) {
-        PreloadGameFolderDlls();
+        if ( preloadDisabled ) {
+            Logging::Wrn( "GD3D11_NO_PRELOAD=1: skipping the game-folder DLL preload" );
+        } else {
+            PreloadGameFolderDlls();
+        }
     }
     originalEntryPoint();
 }
