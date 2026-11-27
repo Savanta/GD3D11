@@ -1228,6 +1228,24 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
             static_cast<int>( Engine::GAPI->GetRendererState().RendererSettings.ChangeWindowPreset ) );
     }
 
+    // Follow the window. A flip-model swapchain whose surface is not exactly its own size answers the
+    // first present with VK_ERROR_OUT_OF_DATE_KHR, and the client area can be a few pixels off the
+    // request - measured on the streaming box: window 1920x1056 for a 1920x1080 request, with no
+    // window manager running and no decoration to blame. Everything downstream (Resolution, the
+    // backbuffer, the swapchain desc) follows this value, so correcting it here fixes the picture
+    // instead of asking the driver to present a surface it does not have.
+    if ( m_OutputWindow ) {
+        RECT clientRect = {};
+        GetClientRect( m_OutputWindow, &clientRect );
+        const INT2 clientSize { clientRect.right - clientRect.left, clientRect.bottom - clientRect.top };
+        if ( clientSize.x > 0 && clientSize.y > 0
+            && ( clientSize.x != newSize.x || clientSize.y != newSize.y ) ) {
+            Logging::Inf( "Swapchain: following the window {}x{} instead of the requested {}x{}",
+                clientSize.x, clientSize.y, newSize.x, newSize.y );
+            newSize = clientSize;
+        }
+    }
+
     HRESULT hr;
     if ( memcmp( &Resolution, &newSize, sizeof( newSize ) ) == 0 && SwapChain.Get() )
         return XR_SUCCESS;  // Don't resize if we don't have to
