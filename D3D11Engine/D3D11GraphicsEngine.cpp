@@ -1448,11 +1448,16 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
             // renderer's resolution and the window all at 1920x1080. The transition is ResizeTarget +
             // SetFullscreenState below, so it now happens only when the player actually asked for
             // exclusive fullscreen. Windowed and borderless (the streaming default) skip it.
+            // 0 means nobody asked for anything: the ini was never written, or the value was already
+            // consumed. Reading that as "the player wants exclusive fullscreen" is what produced the
+            // OUT_OF_DATE above - the streaming box has the preset unset (measured: ChangeToMode 0 in the
+            // swapchain-geometry line while the launcher wrote 2), so the transition ran and the surface
+            // it invalidated ended the game. Only an explicit exclusive request may take this path.
             const auto windowPreset = Engine::GAPI->GetRendererState().RendererSettings.ChangeWindowPreset;
-            bool windowed = Engine::GAPI->HasCommandlineParameter( "ZWINDOW" ) ||
-                Engine::GAPI->GetIntParamFromConfig( "zStartupWindowed" ) ||
-                windowPreset == WINDOW_MODE_WINDOWED ||
-                windowPreset == WINDOW_MODE_FULLSCREEN_BORDERLESS;
+            const bool askedExclusive = windowPreset == WINDOW_MODE_FULLSCREEN_EXCLUSIVE;
+            bool windowed = !askedExclusive ||
+                Engine::GAPI->HasCommandlineParameter( "ZWINDOW" ) ||
+                Engine::GAPI->GetIntParamFromConfig( "zStartupWindowed" );
 
             if ( !windowed ) {
                 DXGI_MODE_DESC newMode = {};
