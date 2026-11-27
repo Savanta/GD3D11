@@ -1374,8 +1374,28 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
             // According to microsoft guide it is the best practice
             // because the swapchain is created in accordance to desktop resolution
             // and we can have different resolution in fullscreen exclusive
+            // Streaming box: an exclusive-fullscreen transition through DXVK invalidates the surface it
+            // has just been given. Measured 27.11.2026 on a virtual X output: swapchain created at
+            // 1920x1080 with FIFO and 5 images, then the very first present returned
+            // VK_ERROR_OUT_OF_DATE_KHR and Gothic exited rc=0 - with the game's own resolution, the
+            // renderer's resolution and the window all at 1920x1080. The transition is ResizeTarget +
+            // SetFullscreenState below, so it now happens only when the player actually asked for
+            // exclusive fullscreen. Windowed and borderless (the streaming default) skip it.
+            const auto windowPreset = Engine::GAPI->GetRendererState().RendererSettings.ChangeWindowPreset;
             bool windowed = Engine::GAPI->HasCommandlineParameter( "ZWINDOW" ) ||
-                Engine::GAPI->GetIntParamFromConfig( "zStartupWindowed" );
+                Engine::GAPI->GetIntParamFromConfig( "zStartupWindowed" ) ||
+                windowPreset == WINDOW_MODE_WINDOWED ||
+                windowPreset == WINDOW_MODE_FULLSCREEN_BORDERLESS;
+
+            // The numbers that decide it, in one line: a mismatch between any two of these is an
+            // OUT_OF_DATE that looks like a renderer fault.
+            RECT clientRect = {};
+            GetClientRect( m_OutputWindow, &clientRect );
+            Logging::Inf( "Swapchain geometry: window {}x{}, desc {}x{}, renderer {}x{}, ChangeToMode {}, flip {}",
+                clientRect.right - clientRect.left, clientRect.bottom - clientRect.top,
+                bbres.x, bbres.y, GetResolution().x, GetResolution().y,
+                static_cast<int>( windowPreset ), m_swapchainflip );
+
             if ( !windowed ) {
                 DXGI_MODE_DESC newMode = {};
                 newMode.Width = newSize.x;
