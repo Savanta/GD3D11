@@ -1212,6 +1212,22 @@ XRESULT D3D11GraphicsEngine::RecreateBuffers() {
 
 /** Called on window resize/resolution change */
 XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
+    // The numbers that decide presentation, in one line, for every path through this function: a
+    // mismatch between any two of them presents as VK_ERROR_OUT_OF_DATE_KHR and then as a clean game
+    // exit, which is indistinguishable from a renderer fault without them.
+    {
+        RECT clientRect = {};
+        if ( m_OutputWindow ) {
+            GetClientRect( m_OutputWindow, &clientRect );
+        }
+        const INT2 rendererRes = GetResolution();
+        Logging::Inf( "Swapchain geometry: window {}x{}, requested {}x{}, renderer {}x{}, swapEffect-flip {}, ChangeToMode {}",
+            clientRect.right - clientRect.left, clientRect.bottom - clientRect.top,
+            newSize.x, newSize.y, rendererRes.x, rendererRes.y,
+            Engine::GAPI->GetRendererState().RendererSettings.DisplayFlip,
+            static_cast<int>( Engine::GAPI->GetRendererState().RendererSettings.ChangeWindowPreset ) );
+    }
+
     HRESULT hr;
     if ( memcmp( &Resolution, &newSize, sizeof( newSize ) ) == 0 && SwapChain.Get() )
         return XR_SUCCESS;  // Don't resize if we don't have to
@@ -1386,15 +1402,6 @@ XRESULT D3D11GraphicsEngine::OnResize( INT2 newSize ) {
                 Engine::GAPI->GetIntParamFromConfig( "zStartupWindowed" ) ||
                 windowPreset == WINDOW_MODE_WINDOWED ||
                 windowPreset == WINDOW_MODE_FULLSCREEN_BORDERLESS;
-
-            // The numbers that decide it, in one line: a mismatch between any two of these is an
-            // OUT_OF_DATE that looks like a renderer fault.
-            RECT clientRect = {};
-            GetClientRect( m_OutputWindow, &clientRect );
-            Logging::Inf( "Swapchain geometry: window {}x{}, desc {}x{}, renderer {}x{}, ChangeToMode {}, flip {}",
-                clientRect.right - clientRect.left, clientRect.bottom - clientRect.top,
-                bbres.x, bbres.y, GetResolution().x, GetResolution().y,
-                static_cast<int>( windowPreset ), m_swapchainflip );
 
             if ( !windowed ) {
                 DXGI_MODE_DESC newMode = {};
